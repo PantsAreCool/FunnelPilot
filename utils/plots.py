@@ -333,3 +333,179 @@ def create_kpi_metric(value: float, label: str, format_str: str = "{:,.0f}") -> 
         "value": format_str.format(value),
         "label": label
     }
+
+
+def create_cohort_heatmap(cohort_df: pd.DataFrame, metric: str = "overall_conversion_rate") -> go.Figure:
+    """
+    Create a heatmap for cohort analysis.
+    
+    Args:
+        cohort_df: DataFrame with cohort metrics
+        metric: Metric to visualize
+    
+    Returns:
+        Plotly Figure object
+    """
+    if len(cohort_df) == 0:
+        fig = go.Figure()
+        fig.add_annotation(text="No cohort data available", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+        return fig
+    
+    df = cohort_df.copy()
+    df["cohort_label"] = df["cohort"].dt.strftime("%Y-%m-%d")
+    
+    metric_labels = {
+        "overall_conversion_rate": "Overall Conversion Rate (%)",
+        "visit_to_signup_rate": "Visit → Signup Rate (%)",
+        "signup_to_activation_rate": "Signup → Activation Rate (%)",
+        "activation_to_purchase_rate": "Activation → Purchase Rate (%)"
+    }
+    
+    fig = go.Figure(go.Bar(
+        x=df["cohort_label"],
+        y=df[metric],
+        text=df[metric].apply(lambda x: f"{x:.1f}%"),
+        textposition="outside",
+        marker=dict(
+            color=df[metric],
+            colorscale="Viridis",
+            showscale=True,
+            colorbar=dict(title="%")
+        ),
+        hovertemplate="<b>%{x}</b><br>" + metric_labels.get(metric, metric) + ": %{y:.1f}%<extra></extra>"
+    ))
+    
+    fig.update_layout(
+        title=f"Cohort Analysis: {metric_labels.get(metric, metric)}",
+        xaxis_title="Cohort (First Visit Date)",
+        yaxis_title=metric_labels.get(metric, metric),
+        height=400,
+        margin=dict(l=20, r=20, t=60, b=80),
+        xaxis_tickangle=-45
+    )
+    
+    return fig
+
+
+def create_cohort_trend_chart(cohort_df: pd.DataFrame) -> go.Figure:
+    """
+    Create a line chart showing cohort trends over time.
+    
+    Args:
+        cohort_df: DataFrame with cohort metrics
+    
+    Returns:
+        Plotly Figure object
+    """
+    if len(cohort_df) == 0:
+        fig = go.Figure()
+        fig.add_annotation(text="No cohort data available", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+        return fig
+    
+    df = cohort_df.copy()
+    df["cohort_label"] = df["cohort"].dt.strftime("%Y-%m-%d")
+    
+    fig = go.Figure()
+    
+    metrics = [
+        ("visit_to_signup_rate", "Visit → Signup", FUNNEL_COLORS[1]),
+        ("signup_to_activation_rate", "Signup → Activation", FUNNEL_COLORS[2]),
+        ("activation_to_purchase_rate", "Activation → Purchase", FUNNEL_COLORS[3])
+    ]
+    
+    for metric, name, color in metrics:
+        fig.add_trace(go.Scatter(
+            x=df["cohort_label"],
+            y=df[metric],
+            name=name,
+            mode="lines+markers",
+            line=dict(color=color, width=2),
+            marker=dict(size=8),
+            hovertemplate=f"<b>%{{x}}</b><br>{name}: %{{y:.1f}}%<extra></extra>"
+        ))
+    
+    fig.update_layout(
+        title="Conversion Rate Trends by Cohort",
+        xaxis_title="Cohort (First Visit Date)",
+        yaxis_title="Conversion Rate (%)",
+        yaxis_range=[0, 100],
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        height=400,
+        margin=dict(l=20, r=20, t=80, b=80),
+        xaxis_tickangle=-45
+    )
+    
+    return fig
+
+
+def create_revenue_bar_chart(ltv_df: pd.DataFrame, dimension: str) -> go.Figure:
+    """
+    Create a bar chart for LTV by dimension.
+    
+    Args:
+        ltv_df: DataFrame with LTV metrics
+        dimension: Dimension name
+    
+    Returns:
+        Plotly Figure object
+    """
+    df = ltv_df.head(10)
+    
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        x=df[dimension],
+        y=df["ltv"],
+        name="LTV",
+        marker_color=COLORS["success"],
+        text=df["ltv"].apply(lambda x: f"${x:.2f}"),
+        textposition="outside",
+        hovertemplate="<b>%{x}</b><br>LTV: $%{y:.2f}<extra></extra>"
+    ))
+    
+    fig.update_layout(
+        title=f"Lifetime Value (LTV) by {dimension.replace('_', ' ').title()}",
+        xaxis_title=dimension.replace("_", " ").title(),
+        yaxis_title="LTV ($)",
+        height=350,
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+    
+    return fig
+
+
+def create_revenue_distribution_chart(user_flags: pd.DataFrame) -> go.Figure:
+    """
+    Create a histogram of revenue distribution.
+    
+    Args:
+        user_flags: DataFrame with user data including revenue
+    
+    Returns:
+        Plotly Figure object
+    """
+    paying_users = user_flags[user_flags["revenue"] > 0]["revenue"]
+    
+    if len(paying_users) == 0:
+        fig = go.Figure()
+        fig.add_annotation(text="No revenue data available", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+        fig.update_layout(height=350)
+        return fig
+    
+    fig = go.Figure(go.Histogram(
+        x=paying_users,
+        nbinsx=30,
+        marker_color=COLORS["success"],
+        opacity=0.8,
+        hovertemplate="Revenue: $%{x:.2f}<br>Count: %{y}<extra></extra>"
+    ))
+    
+    fig.update_layout(
+        title="Revenue Distribution (Paying Users)",
+        xaxis_title="Revenue ($)",
+        yaxis_title="Number of Users",
+        height=350,
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+    
+    return fig

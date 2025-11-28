@@ -23,7 +23,10 @@ from etl.funnel_etl import (
     calculate_breakdown_metrics,
     filter_events,
     get_time_to_conversion_stats,
-    run_funnel_analysis_sql
+    run_funnel_analysis_sql,
+    calculate_cohort_analysis,
+    calculate_revenue_metrics,
+    get_user_journeys
 )
 from utils.plots import (
     create_funnel_chart,
@@ -31,7 +34,11 @@ from utils.plots import (
     create_dropoff_chart,
     create_breakdown_bar_chart,
     create_time_distribution_chart,
-    create_multi_metric_breakdown
+    create_multi_metric_breakdown,
+    create_cohort_heatmap,
+    create_cohort_trend_chart,
+    create_revenue_bar_chart,
+    create_revenue_distribution_chart
 )
 
 
@@ -396,6 +403,157 @@ def render_time_analysis(time_metrics: pd.DataFrame):
     st.dataframe(stats_display, hide_index=True)
 
 
+def render_cohort_analysis(df: pd.DataFrame):
+    """Render cohort analysis section."""
+    st.markdown('<div class="section-header">Cohort Analysis</div>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        cohort_period = st.selectbox(
+            "Cohort Period",
+            options=["week", "month"],
+            index=0,
+            help="Group users by their first visit week or month"
+        )
+    
+    cohort_data = calculate_cohort_analysis(df, cohort_period)
+    
+    if len(cohort_data) == 0:
+        st.warning("No cohort data available for the selected filters.")
+        return
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig = create_cohort_heatmap(cohort_data, "overall_conversion_rate")
+        st.plotly_chart(fig, key="cohort_heatmap")
+    
+    with col2:
+        fig = create_cohort_trend_chart(cohort_data)
+        st.plotly_chart(fig, key="cohort_trend")
+    
+    st.markdown("#### Cohort Metrics Table")
+    display_df = cohort_data.copy()
+    display_df["cohort"] = display_df["cohort"].dt.strftime("%Y-%m-%d")
+    display_df["revenue"] = display_df["revenue"].apply(lambda x: f"${x:,.2f}")
+    display_df.columns = ["Cohort", "Visits", "Sign-ups", "Activations", "Purchases", "Revenue", 
+                          "Users", "Visit→Signup %", "Signup→Activation %", "Activation→Purchase %", "Overall %"]
+    st.dataframe(display_df, hide_index=True)
+
+
+def render_revenue_analytics(user_flags: pd.DataFrame):
+    """Render revenue analytics dashboard."""
+    st.markdown('<div class="section-header">Revenue Analytics</div>', unsafe_allow_html=True)
+    
+    revenue_metrics = calculate_revenue_metrics(user_flags)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Revenue", f"${revenue_metrics['total_revenue']:,.2f}")
+    with col2:
+        st.metric("ARPU", f"${revenue_metrics['arpu']:.2f}", help="Average Revenue Per User")
+    with col3:
+        st.metric("ARPPU", f"${revenue_metrics['arppu']:.2f}", help="Average Revenue Per Paying User")
+    with col4:
+        st.metric("Conversion to Paid", f"{revenue_metrics['conversion_to_paid']:.1f}%")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig = create_revenue_bar_chart(revenue_metrics["ltv_by_source"], "traffic_source")
+        st.plotly_chart(fig, key="ltv_source")
+    
+    with col2:
+        fig = create_revenue_bar_chart(revenue_metrics["ltv_by_device"], "device")
+        st.plotly_chart(fig, key="ltv_device")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig = create_revenue_bar_chart(revenue_metrics["ltv_by_country"], "country")
+        st.plotly_chart(fig, key="ltv_country")
+    
+    with col2:
+        fig = create_revenue_distribution_chart(user_flags)
+        st.plotly_chart(fig, key="revenue_dist")
+    
+    st.markdown("#### LTV by Traffic Source")
+    ltv_source = revenue_metrics["ltv_by_source"].copy()
+    ltv_source["total_revenue"] = ltv_source["total_revenue"].apply(lambda x: f"${x:,.2f}")
+    ltv_source["avg_revenue"] = ltv_source["avg_revenue"].apply(lambda x: f"${x:.2f}")
+    ltv_source["ltv"] = ltv_source["ltv"].apply(lambda x: f"${x:.2f}")
+    ltv_source.columns = ["Traffic Source", "Total Revenue", "Avg Revenue", "Users", "Purchasers", "LTV", "Conversion %"]
+    st.dataframe(ltv_source, hide_index=True)
+
+
+def render_user_journeys(df: pd.DataFrame):
+    """Render user journey exploration."""
+    st.markdown('<div class="section-header">User Journey Exploration</div>', unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 1, 2])
+    
+    with col1:
+        journey_limit = st.selectbox(
+            "Number of Users",
+            options=[25, 50, 100, 200],
+            index=2,
+            help="Number of user journeys to display"
+        )
+    
+    with col2:
+        sort_by = st.selectbox(
+            "Sort By",
+            options=["revenue", "event_count", "journey_duration_hours"],
+            format_func=lambda x: {"revenue": "Revenue", "event_count": "Event Count", "journey_duration_hours": "Journey Duration"}[x]
+        )
+    
+    journeys = get_user_journeys(df, limit=journey_limit)
+    
+    if len(journeys) == 0:
+        st.warning("No journey data available.")
+        return
+    
+    journeys = journeys.sort_values(sort_by, ascending=False)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Journeys", len(journeys))
+    with col2:
+        completed = len(journeys[journeys["final_stage"] == "purchase"])
+        st.metric("Completed Purchases", completed)
+    with col3:
+        avg_events = journeys["event_count"].mean()
+        st.metric("Avg Events/User", f"{avg_events:.1f}")
+    with col4:
+        avg_duration = journeys["journey_duration_hours"].mean()
+        st.metric("Avg Journey (hrs)", f"{avg_duration:.1f}")
+    
+    stage_counts = journeys["final_stage"].value_counts()
+    stage_labels = {"purchase": "Purchased", "activation": "Activated", "signup": "Signed Up", "visit": "Visited Only"}
+    
+    st.markdown("#### Final Stage Distribution")
+    stage_col1, stage_col2, stage_col3, stage_col4 = st.columns(4)
+    cols = [stage_col1, stage_col2, stage_col3, stage_col4]
+    
+    for i, (stage, label) in enumerate(stage_labels.items()):
+        count = stage_counts.get(stage, 0)
+        with cols[i]:
+            st.metric(label, count)
+    
+    st.markdown("#### User Journeys")
+    display_df = journeys.copy()
+    display_df["first_event"] = display_df["first_event"].dt.strftime("%Y-%m-%d %H:%M")
+    display_df["last_event"] = display_df["last_event"].dt.strftime("%Y-%m-%d %H:%M")
+    display_df["revenue"] = display_df["revenue"].apply(lambda x: f"${x:,.2f}")
+    display_df["journey_duration_hours"] = display_df["journey_duration_hours"].apply(lambda x: f"{x:.1f}")
+    display_df.columns = ["User ID", "Journey Path", "First Event", "Last Event", "Events", 
+                          "Traffic Source", "Device", "Country", "Revenue", "Duration (hrs)", "Final Stage"]
+    
+    st.dataframe(display_df, hide_index=True, height=400)
+
+
 def main():
     """Main application entry point."""
     st.markdown('<div class="main-header">Marketing Funnel Analysis</div>', unsafe_allow_html=True)
@@ -433,14 +591,25 @@ def main():
     
     render_kpis(processed_data["conversion_rates"], processed_data["user_flags"])
     
-    render_funnel_section(processed_data["funnel_counts"], processed_data["conversion_rates"])
+    main_tab1, main_tab2, main_tab3, main_tab4 = st.tabs([
+        "Funnel Analysis", "Cohort Analysis", "Revenue Analytics", "User Journeys"
+    ])
     
-    render_dropoff_section(processed_data["conversion_rates"])
+    with main_tab1:
+        render_funnel_section(processed_data["funnel_counts"], processed_data["conversion_rates"])
+        render_dropoff_section(processed_data["conversion_rates"])
+        breakdowns = get_breakdown_data(processed_data["user_flags"])
+        render_breakdown_section(breakdowns)
+        render_time_analysis(processed_data["time_metrics"])
     
-    breakdowns = get_breakdown_data(processed_data["user_flags"])
-    render_breakdown_section(breakdowns)
+    with main_tab2:
+        render_cohort_analysis(filtered_df)
     
-    render_time_analysis(processed_data["time_metrics"])
+    with main_tab3:
+        render_revenue_analytics(processed_data["user_flags"])
+    
+    with main_tab4:
+        render_user_journeys(filtered_df)
     
     st.markdown("---")
     st.markdown(

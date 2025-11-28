@@ -309,3 +309,162 @@ def get_time_to_conversion_stats(time_df: pd.DataFrame) -> pd.DataFrame:
             })
     
     return pd.DataFrame(stats)
+
+
+def calculate_cohort_analysis(df: pd.DataFrame, cohort_period: str = "week") -> pd.DataFrame:
+    """
+    Calculate funnel metrics by cohort (based on first visit date).
+    
+    Args:
+        df: Event-level DataFrame
+        cohort_period: 'week' or 'month' for cohort grouping
+    
+    Returns:
+        DataFrame with funnel metrics per cohort
+    """
+    first_visits = df[df["event_name"] == "visit"].groupby("user_id")["event_timestamp"].min().reset_index()
+    first_visits.columns = ["user_id", "first_visit"]
+    
+    if cohort_period == "week":
+        first_visits["cohort"] = first_visits["first_visit"].dt.to_period("W").dt.start_time
+    else:
+        first_visits["cohort"] = first_visits["first_visit"].dt.to_period("M").dt.start_time
+    
+    user_events = df.groupby("user_id")["event_name"].apply(set).reset_index()
+    user_events.columns = ["user_id", "events"]
+    
+    user_events["visited"] = user_events["events"].apply(lambda x: "visit" in x)
+    user_events["signed_up"] = user_events["events"].apply(lambda x: "signup" in x)
+    user_events["activated"] = user_events["events"].apply(lambda x: "activation" in x)
+    user_events["purchased"] = user_events["events"].apply(lambda x: "purchase" in x)
+    
+    revenue = df[df["event_name"] == "purchase"].groupby("user_id")["revenue"].sum().reset_index()
+    
+    cohort_users = first_visits.merge(user_events, on="user_id")
+    cohort_users = cohort_users.merge(revenue, on="user_id", how="left")
+    cohort_users["revenue"] = cohort_users["revenue"].fillna(0)
+    
+    cohort_metrics = cohort_users.groupby("cohort").agg({
+        "visited": "sum",
+        "signed_up": "sum",
+        "activated": "sum",
+        "purchased": "sum",
+        "revenue": "sum",
+        "user_id": "count"
+    }).reset_index()
+    
+    cohort_metrics.columns = ["cohort", "visits", "signups", "activations", "purchases", "revenue", "users"]
+    
+    cohort_metrics["visit_to_signup_rate"] = (cohort_metrics["signups"] / cohort_metrics["visits"] * 100).round(2).fillna(0)
+    cohort_metrics["signup_to_activation_rate"] = (cohort_metrics["activations"] / cohort_metrics["signups"] * 100).round(2).fillna(0)
+    cohort_metrics["activation_to_purchase_rate"] = (cohort_metrics["purchases"] / cohort_metrics["activations"] * 100).round(2).fillna(0)
+    cohort_metrics["overall_conversion_rate"] = (cohort_metrics["purchases"] / cohort_metrics["visits"] * 100).round(2).fillna(0)
+    
+    cohort_metrics = cohort_metrics.sort_values("cohort")
+    
+    return cohort_metrics
+
+
+def calculate_revenue_metrics(user_flags: pd.DataFrame) -> dict:
+    """
+    Calculate revenue-related metrics: LTV, ARPU, revenue by segment.
+    
+    Args:
+        user_flags: DataFrame with per-user stage flags and revenue
+    
+    Returns:
+        Dictionary with revenue metrics
+    """
+    total_users = len(user_flags)
+    paying_users = user_flags[user_flags["purchased"] == True]
+    total_revenue = user_flags["revenue"].sum()
+    
+    arpu = total_revenue / total_users if total_users > 0 else 0
+    arppu = total_revenue / len(paying_users) if len(paying_users) > 0 else 0
+    
+    ltv_by_source = user_flags.groupby("traffic_source").agg({
+        "revenue": ["sum", "mean"],
+        "user_id": "count",
+        "purchased": "sum"
+    }).reset_index()
+    ltv_by_source.columns = ["traffic_source", "total_revenue", "avg_revenue", "users", "purchasers"]
+    ltv_by_source["ltv"] = (ltv_by_source["total_revenue"] / ltv_by_source["users"]).round(2)
+    ltv_by_source["conversion_rate"] = (ltv_by_source["purchasers"] / ltv_by_source["users"] * 100).round(2)
+    
+    ltv_by_device = user_flags.groupby("device").agg({
+        "revenue": ["sum", "mean"],
+        "user_id": "count",
+        "purchased": "sum"
+    }).reset_index()
+    ltv_by_device.columns = ["device", "total_revenue", "avg_revenue", "users", "purchasers"]
+    ltv_by_device["ltv"] = (ltv_by_device["total_revenue"] / ltv_by_device["users"]).round(2)
+    ltv_by_device["conversion_rate"] = (ltv_by_device["purchasers"] / ltv_by_device["users"] * 100).round(2)
+    
+    ltv_by_country = user_flags.groupby("country").agg({
+        "revenue": ["sum", "mean"],
+        "user_id": "count",
+        "purchased": "sum"
+    }).reset_index()
+    ltv_by_country.columns = ["country", "total_revenue", "avg_revenue", "users", "purchasers"]
+    ltv_by_country["ltv"] = (ltv_by_country["total_revenue"] / ltv_by_country["users"]).round(2)
+    ltv_by_country["conversion_rate"] = (ltv_by_country["purchasers"] / ltv_by_country["users"] * 100).round(2)
+    
+    revenue_distribution = paying_users["revenue"].describe().to_dict() if len(paying_users) > 0 else {}
+    
+    return {
+        "total_revenue": round(total_revenue, 2),
+        "arpu": round(arpu, 2),
+        "arppu": round(arppu, 2),
+        "paying_users": len(paying_users),
+        "total_users": total_users,
+        "conversion_to_paid": round(len(paying_users) / total_users * 100, 2) if total_users > 0 else 0,
+        "ltv_by_source": ltv_by_source.sort_values("ltv", ascending=False),
+        "ltv_by_device": ltv_by_device.sort_values("ltv", ascending=False),
+        "ltv_by_country": ltv_by_country.sort_values("ltv", ascending=False),
+        "revenue_distribution": revenue_distribution
+    }
+
+
+def get_user_journeys(df: pd.DataFrame, limit: int = 100) -> pd.DataFrame:
+    """
+    Get individual user journey paths through the funnel.
+    
+    Args:
+        df: Event-level DataFrame
+        limit: Maximum number of users to return
+    
+    Returns:
+        DataFrame with user journey details
+    """
+    user_journeys = df.sort_values(["user_id", "event_timestamp"])
+    
+    journey_summary = user_journeys.groupby("user_id").agg({
+        "event_name": lambda x: " → ".join(x),
+        "event_timestamp": ["min", "max", "count"],
+        "traffic_source": "first",
+        "device": "first",
+        "country": "first",
+        "revenue": "sum"
+    }).reset_index()
+    
+    journey_summary.columns = ["user_id", "journey_path", "first_event", "last_event", "event_count", 
+                               "traffic_source", "device", "country", "revenue"]
+    
+    journey_summary["journey_duration_hours"] = (
+        (journey_summary["last_event"] - journey_summary["first_event"]).dt.total_seconds() / 3600
+    ).round(2)
+    
+    events_set = df.groupby("user_id")["event_name"].apply(set).reset_index()
+    events_set.columns = ["user_id", "events"]
+    
+    journey_summary = journey_summary.merge(events_set, on="user_id")
+    journey_summary["final_stage"] = journey_summary["events"].apply(
+        lambda x: "purchase" if "purchase" in x else 
+                  "activation" if "activation" in x else 
+                  "signup" if "signup" in x else "visit"
+    )
+    journey_summary = journey_summary.drop(columns=["events"])
+    
+    journey_summary = journey_summary.sort_values("revenue", ascending=False).head(limit)
+    
+    return journey_summary
