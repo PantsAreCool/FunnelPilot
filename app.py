@@ -7,6 +7,7 @@ with support for both synthetic and user-uploaded data.
 
 import streamlit as st
 import pandas as pd
+import io
 from datetime import datetime, timedelta
 
 from data.synthetic_generator import (
@@ -40,6 +41,45 @@ from utils.plots import (
     create_revenue_bar_chart,
     create_revenue_distribution_chart
 )
+
+
+def convert_df_to_csv(df: pd.DataFrame) -> bytes:
+    """Convert DataFrame to CSV bytes for download."""
+    return df.to_csv(index=False).encode('utf-8')
+
+
+def convert_df_to_excel(df: pd.DataFrame) -> bytes:
+    """Convert DataFrame to Excel bytes for download."""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Data')
+    return output.getvalue()
+
+
+def create_export_section(df: pd.DataFrame, key_prefix: str, title: str = "Export Data"):
+    """Create download buttons for CSV and Excel export."""
+    col1, col2 = st.columns(2)
+    with col1:
+        csv_data = convert_df_to_csv(df)
+        st.download_button(
+            label="Download CSV",
+            data=csv_data,
+            file_name=f"{key_prefix}.csv",
+            mime="text/csv",
+            key=f"csv_{key_prefix}"
+        )
+    with col2:
+        try:
+            excel_data = convert_df_to_excel(df)
+            st.download_button(
+                label="Download Excel",
+                data=excel_data,
+                file_name=f"{key_prefix}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"excel_{key_prefix}"
+            )
+        except Exception:
+            st.info("Excel export requires openpyxl. CSV is available.")
 
 
 st.set_page_config(
@@ -334,8 +374,11 @@ def render_breakdown_section(breakdowns: dict):
             ["traffic_source", "visits", "signups", "activations", "purchases", "revenue", "overall_conversion_rate"]
         ].copy()
         display_df.columns = ["Traffic Source", "Visits", "Sign-ups", "Activations", "Purchases", "Revenue", "Conversion Rate (%)"]
+        export_df_source = display_df.copy()
         display_df["Revenue"] = display_df["Revenue"].apply(lambda x: f"${x:,.2f}")
         st.dataframe(display_df, hide_index=True)
+        with st.expander("Export Traffic Source Data"):
+            create_export_section(export_df_source, "traffic_source_breakdown")
     
     with tab2:
         col1, col2 = st.columns(2)
@@ -351,8 +394,11 @@ def render_breakdown_section(breakdowns: dict):
             ["device", "visits", "signups", "activations", "purchases", "revenue", "overall_conversion_rate"]
         ].copy()
         display_df.columns = ["Device", "Visits", "Sign-ups", "Activations", "Purchases", "Revenue", "Conversion Rate (%)"]
+        export_df_device = display_df.copy()
         display_df["Revenue"] = display_df["Revenue"].apply(lambda x: f"${x:,.2f}")
         st.dataframe(display_df, hide_index=True)
+        with st.expander("Export Device Data"):
+            create_export_section(export_df_device, "device_breakdown")
     
     with tab3:
         col1, col2 = st.columns(2)
@@ -368,8 +414,11 @@ def render_breakdown_section(breakdowns: dict):
             ["country", "visits", "signups", "activations", "purchases", "revenue", "overall_conversion_rate"]
         ].copy()
         display_df.columns = ["Country", "Visits", "Sign-ups", "Activations", "Purchases", "Revenue", "Conversion Rate (%)"]
+        export_df_country = display_df.copy()
         display_df["Revenue"] = display_df["Revenue"].apply(lambda x: f"${x:,.2f}")
         st.dataframe(display_df, hide_index=True)
+        with st.expander("Export Country Data"):
+            create_export_section(export_df_country, "country_breakdown")
 
 
 def render_time_analysis(time_metrics: pd.DataFrame):
@@ -401,6 +450,9 @@ def render_time_analysis(time_metrics: pd.DataFrame):
     stats_display = time_stats.copy()
     stats_display.columns = ["Transition", "Users", "Mean", "Median", "Std Dev", "Min", "Max"]
     st.dataframe(stats_display, hide_index=True)
+    
+    with st.expander("Export Time Analysis Data"):
+        create_export_section(stats_display, "time_conversion_stats")
 
 
 def render_cohort_analysis(df: pd.DataFrame):
@@ -434,11 +486,16 @@ def render_cohort_analysis(df: pd.DataFrame):
     
     st.markdown("#### Cohort Metrics Table")
     display_df = cohort_data.copy()
+    export_cohort = cohort_data.copy()
+    export_cohort["cohort"] = export_cohort["cohort"].dt.strftime("%Y-%m-%d")
     display_df["cohort"] = display_df["cohort"].dt.strftime("%Y-%m-%d")
     display_df["revenue"] = display_df["revenue"].apply(lambda x: f"${x:,.2f}")
     display_df.columns = ["Cohort", "Visits", "Sign-ups", "Activations", "Purchases", "Revenue", 
                           "Users", "Visit→Signup %", "Signup→Activation %", "Activation→Purchase %", "Overall %"]
     st.dataframe(display_df, hide_index=True)
+    
+    with st.expander("Export Cohort Data"):
+        create_export_section(export_cohort, "cohort_analysis")
 
 
 def render_revenue_analytics(user_flags: pd.DataFrame):
@@ -480,11 +537,15 @@ def render_revenue_analytics(user_flags: pd.DataFrame):
     
     st.markdown("#### LTV by Traffic Source")
     ltv_source = revenue_metrics["ltv_by_source"].copy()
+    export_ltv = ltv_source.copy()
     ltv_source["total_revenue"] = ltv_source["total_revenue"].apply(lambda x: f"${x:,.2f}")
     ltv_source["avg_revenue"] = ltv_source["avg_revenue"].apply(lambda x: f"${x:.2f}")
     ltv_source["ltv"] = ltv_source["ltv"].apply(lambda x: f"${x:.2f}")
     ltv_source.columns = ["Traffic Source", "Total Revenue", "Avg Revenue", "Users", "Purchasers", "LTV", "Conversion %"]
     st.dataframe(ltv_source, hide_index=True)
+    
+    with st.expander("Export Revenue Data"):
+        create_export_section(export_ltv, "ltv_by_source")
 
 
 def render_user_journeys(df: pd.DataFrame):
@@ -543,6 +604,10 @@ def render_user_journeys(df: pd.DataFrame):
             st.metric(label, count)
     
     st.markdown("#### User Journeys")
+    export_journeys = journeys.copy()
+    export_journeys["first_event"] = export_journeys["first_event"].dt.strftime("%Y-%m-%d %H:%M")
+    export_journeys["last_event"] = export_journeys["last_event"].dt.strftime("%Y-%m-%d %H:%M")
+    
     display_df = journeys.copy()
     display_df["first_event"] = display_df["first_event"].dt.strftime("%Y-%m-%d %H:%M")
     display_df["last_event"] = display_df["last_event"].dt.strftime("%Y-%m-%d %H:%M")
@@ -552,6 +617,9 @@ def render_user_journeys(df: pd.DataFrame):
                           "Traffic Source", "Device", "Country", "Revenue", "Duration (hrs)", "Final Stage"]
     
     st.dataframe(display_df, hide_index=True, height=400)
+    
+    with st.expander("Export User Journey Data"):
+        create_export_section(export_journeys, "user_journeys")
 
 
 def main():
