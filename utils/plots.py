@@ -509,3 +509,146 @@ def create_revenue_distribution_chart(user_flags: pd.DataFrame) -> go.Figure:
     )
     
     return fig
+
+
+def create_ab_comparison_funnel(funnel_a: pd.DataFrame, funnel_b: pd.DataFrame, 
+                                 segment_a: str, segment_b: str) -> go.Figure:
+    """
+    Create side-by-side funnel comparison chart for A/B testing.
+    
+    Args:
+        funnel_a: Funnel counts for segment A
+        funnel_b: Funnel counts for segment B
+        segment_a: Name of segment A
+        segment_b: Name of segment B
+    
+    Returns:
+        Plotly Figure object
+    """
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        x=funnel_a["stage"].str.title(),
+        y=funnel_a["count"],
+        name=segment_a,
+        marker_color=FUNNEL_COLORS[0],
+        text=funnel_a["count"].apply(lambda x: f"{x:,}"),
+        textposition="outside",
+        hovertemplate=f"<b>{segment_a}</b><br>%{{x}}: %{{y:,}}<extra></extra>"
+    ))
+    
+    fig.add_trace(go.Bar(
+        x=funnel_b["stage"].str.title(),
+        y=funnel_b["count"],
+        name=segment_b,
+        marker_color=FUNNEL_COLORS[2],
+        text=funnel_b["count"].apply(lambda x: f"{x:,}"),
+        textposition="outside",
+        hovertemplate=f"<b>{segment_b}</b><br>%{{x}}: %{{y:,}}<extra></extra>"
+    ))
+    
+    fig.update_layout(
+        title="Funnel Comparison: User Counts by Stage",
+        xaxis_title="Funnel Stage",
+        yaxis_title="Number of Users",
+        barmode="group",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        height=400,
+        margin=dict(l=20, r=20, t=80, b=20)
+    )
+    
+    return fig
+
+
+def create_ab_conversion_comparison(rates_a: pd.DataFrame, rates_b: pd.DataFrame,
+                                     segment_a: str, segment_b: str) -> go.Figure:
+    """
+    Create conversion rate comparison chart for A/B testing.
+    
+    Args:
+        rates_a: Conversion rates for segment A
+        rates_b: Conversion rates for segment B
+        segment_a: Name of segment A
+        segment_b: Name of segment B
+    
+    Returns:
+        Plotly Figure object
+    """
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        x=rates_a["stage"].str.title(),
+        y=rates_a["step_conversion_rate"],
+        name=segment_a,
+        marker_color=FUNNEL_COLORS[0],
+        text=rates_a["step_conversion_rate"].apply(lambda x: f"{x:.1f}%"),
+        textposition="outside",
+        hovertemplate=f"<b>{segment_a}</b><br>%{{x}}: %{{y:.1f}}%<extra></extra>"
+    ))
+    
+    fig.add_trace(go.Bar(
+        x=rates_b["stage"].str.title(),
+        y=rates_b["step_conversion_rate"],
+        name=segment_b,
+        marker_color=FUNNEL_COLORS[2],
+        text=rates_b["step_conversion_rate"].apply(lambda x: f"{x:.1f}%"),
+        textposition="outside",
+        hovertemplate=f"<b>{segment_b}</b><br>%{{x}}: %{{y:.1f}}%<extra></extra>"
+    ))
+    
+    fig.update_layout(
+        title="Conversion Rate Comparison by Stage",
+        xaxis_title="Funnel Stage",
+        yaxis_title="Conversion Rate (%)",
+        yaxis_range=[0, 110],
+        barmode="group",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        height=400,
+        margin=dict(l=20, r=20, t=80, b=20)
+    )
+    
+    return fig
+
+
+def create_ab_summary_chart(summary: dict) -> go.Figure:
+    """
+    Create summary comparison chart for A/B testing.
+    
+    Args:
+        summary: Summary dictionary with segment metrics
+    
+    Returns:
+        Plotly Figure object
+    """
+    segments = [summary["segment_a"]["name"], summary["segment_b"]["name"]]
+    metrics = ["Conversion Rate (%)", "ARPU ($)"]
+    
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        x=["Conversion Rate", "ARPU"],
+        y=[summary["segment_a"]["conversion_rate"], summary["segment_a"]["arpu"]],
+        name=segments[0],
+        marker_color=FUNNEL_COLORS[0],
+        hovertemplate=f"<b>{segments[0]}</b><br>%{{x}}: %{{y:.2f}}<extra></extra>"
+    ))
+    
+    fig.add_trace(go.Bar(
+        x=["Conversion Rate", "ARPU"],
+        y=[summary["segment_b"]["conversion_rate"], summary["segment_b"]["arpu"]],
+        name=segments[1],
+        marker_color=FUNNEL_COLORS[2],
+        hovertemplate=f"<b>{segments[1]}</b><br>%{{x}}: %{{y:.2f}}<extra></extra>"
+    ))
+    
+    fig.update_layout(
+        title="Key Metrics Comparison",
+        xaxis_title="Metric",
+        yaxis_title="Value",
+        barmode="group",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        height=350,
+        margin=dict(l=20, r=20, t=80, b=20)
+    )
+    
+    return fig

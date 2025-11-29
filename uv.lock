@@ -725,6 +725,7 @@ dependencies = [
     { name = "openpyxl" },
     { name = "pandas" },
     { name = "plotly" },
+    { name = "pyarrow" },
     { name = "statsmodels" },
     { name = "streamlit" },
 ]
@@ -736,6 +737,7 @@ requires-dist = [
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "plotly", specifier = ">=6.5.0" },
+    { name = "pyarrow", specifier = ">=21.0.0" },
     { name = "statsmodels", specifier = ">=0.14.5" },
     { name = "streamlit", specifier = ">=1.51.0" },
 ]

@@ -9,6 +9,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import os
+import io
+from typing import Union
 
 
 def generate_synthetic_data(
@@ -246,3 +248,196 @@ def prepare_uploaded_data(df: pd.DataFrame) -> pd.DataFrame:
         df["revenue"] = pd.to_numeric(df["revenue"], errors="coerce").fillna(0.0)
     
     return df
+
+
+def read_uploaded_file(uploaded_file, file_type: str = None) -> tuple[pd.DataFrame, str]:
+    """
+    Read uploaded file in various formats (CSV, Excel, JSON, Parquet).
+    
+    Args:
+        uploaded_file: Streamlit uploaded file object or file path
+        file_type: Optional explicit file type. If None, inferred from filename.
+    
+    Returns:
+        Tuple of (DataFrame, error message or empty string)
+    """
+    try:
+        if hasattr(uploaded_file, 'name'):
+            filename = uploaded_file.name.lower()
+        else:
+            filename = str(uploaded_file).lower()
+        
+        if file_type:
+            ext = file_type.lower()
+        elif filename.endswith('.csv'):
+            ext = 'csv'
+        elif filename.endswith('.xlsx') or filename.endswith('.xls'):
+            ext = 'excel'
+        elif filename.endswith('.json'):
+            ext = 'json'
+        elif filename.endswith('.parquet') or filename.endswith('.pq'):
+            ext = 'parquet'
+        else:
+            return None, f"Unsupported file format. Please upload CSV, Excel (.xlsx/.xls), JSON, or Parquet files."
+        
+        if ext == 'csv':
+            df = pd.read_csv(uploaded_file)
+        elif ext == 'excel':
+            df = pd.read_excel(uploaded_file, engine='openpyxl')
+        elif ext == 'json':
+            if hasattr(uploaded_file, 'read'):
+                content = uploaded_file.read()
+                if isinstance(content, bytes):
+                    content = content.decode('utf-8')
+                df = pd.read_json(io.StringIO(content))
+            else:
+                df = pd.read_json(uploaded_file)
+        elif ext == 'parquet':
+            df = pd.read_parquet(uploaded_file)
+        else:
+            return None, f"Unsupported file format: {ext}"
+        
+        return df, ""
+    
+    except Exception as e:
+        return None, f"Error reading file: {str(e)}"
+
+
+def get_supported_formats() -> list[str]:
+    """Return list of supported file formats for upload."""
+    return ["csv", "xlsx", "xls", "json", "parquet"]
+
+
+def get_file_format_help() -> str:
+    """Return help text describing supported file formats."""
+    return """
+**Supported File Formats:**
+- **CSV** (.csv): Comma-separated values
+- **Excel** (.xlsx, .xls): Microsoft Excel spreadsheets
+- **JSON** (.json): JavaScript Object Notation (records or array format)
+- **Parquet** (.parquet, .pq): Apache Parquet columnar format
+
+**Required Columns:**
+- `user_id` - Unique user identifier
+- `event_name` - One of: visit, signup, activation, purchase
+- `event_timestamp` - Event datetime
+
+**Optional Columns:**
+- `traffic_source` - e.g., organic, paid_search, social
+- `device` - e.g., desktop, mobile, tablet
+- `country` - e.g., USA, UK, Germany
+- `revenue` - Purchase revenue (numeric)
+"""
+
+
+def get_required_columns() -> list[str]:
+    """Return list of required column names."""
+    return ["user_id", "event_name", "event_timestamp"]
+
+
+def get_optional_columns() -> list[str]:
+    """Return list of optional column names."""
+    return ["traffic_source", "device", "country", "revenue"]
+
+
+def apply_column_mapping(df: pd.DataFrame, column_mapping: dict) -> pd.DataFrame:
+    """
+    Apply column name mapping to a DataFrame.
+    
+    Args:
+        df: Source DataFrame
+        column_mapping: Dictionary mapping target column names to source column names
+                       e.g., {"user_id": "customer_id", "event_name": "action"}
+    
+    Returns:
+        DataFrame with renamed columns
+    """
+    df = df.copy()
+    
+    reverse_mapping = {v: k for k, v in column_mapping.items() if v and v != "(none)"}
+    
+    if reverse_mapping:
+        df = df.rename(columns=reverse_mapping)
+    
+    return df
+
+
+def auto_detect_columns(df: pd.DataFrame) -> dict:
+    """
+    Attempt to automatically detect column mappings based on column names.
+    
+    Args:
+        df: DataFrame to analyze
+    
+    Returns:
+        Dictionary with suggested mappings
+    """
+    columns = [c.lower() for c in df.columns]
+    original_columns = list(df.columns)
+    
+    mappings = {}
+    
+    user_id_keywords = ["user_id", "userid", "user", "customer_id", "customerid", "customer", "id"]
+    for keyword in user_id_keywords:
+        for i, col in enumerate(columns):
+            if keyword in col or col == keyword:
+                mappings["user_id"] = original_columns[i]
+                break
+        if "user_id" in mappings:
+            break
+    
+    event_keywords = ["event_name", "eventname", "event", "action", "activity", "type"]
+    for keyword in event_keywords:
+        for i, col in enumerate(columns):
+            if keyword in col or col == keyword:
+                mappings["event_name"] = original_columns[i]
+                break
+        if "event_name" in mappings:
+            break
+    
+    timestamp_keywords = ["event_timestamp", "timestamp", "time", "date", "datetime", "created_at", "created"]
+    for keyword in timestamp_keywords:
+        for i, col in enumerate(columns):
+            if keyword in col or col == keyword:
+                mappings["event_timestamp"] = original_columns[i]
+                break
+        if "event_timestamp" in mappings:
+            break
+    
+    source_keywords = ["traffic_source", "source", "channel", "medium", "utm_source"]
+    for keyword in source_keywords:
+        for i, col in enumerate(columns):
+            if keyword in col or col == keyword:
+                mappings["traffic_source"] = original_columns[i]
+                break
+        if "traffic_source" in mappings:
+            break
+    
+    device_keywords = ["device", "device_type", "platform"]
+    for keyword in device_keywords:
+        for i, col in enumerate(columns):
+            if keyword in col or col == keyword:
+                mappings["device"] = original_columns[i]
+                break
+        if "device" in mappings:
+            break
+    
+    country_keywords = ["country", "region", "location", "geo"]
+    for keyword in country_keywords:
+        for i, col in enumerate(columns):
+            if keyword in col or col == keyword:
+                mappings["country"] = original_columns[i]
+                break
+        if "country" in mappings:
+            break
+    
+    revenue_keywords = ["revenue", "amount", "value", "price", "total"]
+    for keyword in revenue_keywords:
+        for i, col in enumerate(columns):
+            if keyword in col or col == keyword:
+                mappings["revenue"] = original_columns[i]
+                break
+        if "revenue" in mappings:
+            break
+    
+    return mappings

@@ -468,3 +468,114 @@ def get_user_journeys(df: pd.DataFrame, limit: int = 100) -> pd.DataFrame:
     journey_summary = journey_summary.sort_values("revenue", ascending=False).head(limit)
     
     return journey_summary
+
+
+def calculate_ab_comparison(
+    df: pd.DataFrame,
+    segment_column: str,
+    segment_a: str,
+    segment_b: str
+) -> dict:
+    """
+    Calculate A/B test comparison between two segments.
+    
+    Args:
+        df: Event-level DataFrame
+        segment_column: Column to segment by (e.g., 'traffic_source', 'device')
+        segment_a: Value for segment A
+        segment_b: Value for segment B
+    
+    Returns:
+        Dictionary with comparison metrics
+    """
+    df_a = df[df[segment_column] == segment_a]
+    df_b = df[df[segment_column] == segment_b]
+    
+    if len(df_a) == 0 or len(df_b) == 0:
+        return {
+            "error": "One or both segments have no data",
+            "segment_a_count": len(df_a),
+            "segment_b_count": len(df_b)
+        }
+    
+    flags_a = create_user_stage_flags(df_a)
+    flags_b = create_user_stage_flags(df_b)
+    
+    funnel_a = calculate_funnel_counts(flags_a)
+    funnel_b = calculate_funnel_counts(flags_b)
+    
+    rates_a = calculate_conversion_rates(funnel_a)
+    rates_b = calculate_conversion_rates(funnel_b)
+    
+    comparison_df = pd.DataFrame({
+        "stage": rates_a["stage"],
+        f"{segment_a}_count": funnel_a["count"],
+        f"{segment_b}_count": funnel_b["count"],
+        f"{segment_a}_rate": rates_a["step_conversion_rate"],
+        f"{segment_b}_rate": rates_b["step_conversion_rate"],
+        "rate_diff": rates_a["step_conversion_rate"] - rates_b["step_conversion_rate"],
+        "rate_lift": ((rates_a["step_conversion_rate"] - rates_b["step_conversion_rate"]) / 
+                      rates_b["step_conversion_rate"].replace(0, np.nan) * 100).round(2)
+    })
+    
+    users_a = len(flags_a)
+    users_b = len(flags_b)
+    purchases_a = flags_a["purchased"].sum()
+    purchases_b = flags_b["purchased"].sum()
+    
+    overall_conv_a = (purchases_a / users_a * 100) if users_a > 0 else 0
+    overall_conv_b = (purchases_b / users_b * 100) if users_b > 0 else 0
+    
+    revenue_a = flags_a["revenue"].sum()
+    revenue_b = flags_b["revenue"].sum()
+    arpu_a = revenue_a / users_a if users_a > 0 else 0
+    arpu_b = revenue_b / users_b if users_b > 0 else 0
+    
+    summary = {
+        "segment_a": {
+            "name": segment_a,
+            "users": users_a,
+            "purchases": int(purchases_a),
+            "conversion_rate": round(overall_conv_a, 2),
+            "revenue": round(revenue_a, 2),
+            "arpu": round(arpu_a, 2)
+        },
+        "segment_b": {
+            "name": segment_b,
+            "users": users_b,
+            "purchases": int(purchases_b),
+            "conversion_rate": round(overall_conv_b, 2),
+            "revenue": round(revenue_b, 2),
+            "arpu": round(arpu_b, 2)
+        },
+        "comparison": {
+            "conversion_diff": round(overall_conv_a - overall_conv_b, 2),
+            "conversion_lift": round((overall_conv_a - overall_conv_b) / overall_conv_b * 100, 2) if overall_conv_b > 0 else 0,
+            "arpu_diff": round(arpu_a - arpu_b, 2),
+            "arpu_lift": round((arpu_a - arpu_b) / arpu_b * 100, 2) if arpu_b > 0 else 0,
+            "winner": segment_a if overall_conv_a > overall_conv_b else segment_b if overall_conv_b > overall_conv_a else "tie"
+        }
+    }
+    
+    return {
+        "stage_comparison": comparison_df,
+        "summary": summary,
+        "funnel_a": funnel_a,
+        "funnel_b": funnel_b,
+        "rates_a": rates_a,
+        "rates_b": rates_b
+    }
+
+
+def get_segment_options(df: pd.DataFrame, segment_column: str) -> list[str]:
+    """
+    Get unique values for a segment column.
+    
+    Args:
+        df: Event-level DataFrame
+        segment_column: Column to get unique values from
+    
+    Returns:
+        List of unique values
+    """
+    return sorted(df[segment_column].unique().tolist())

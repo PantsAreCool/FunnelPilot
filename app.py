@@ -14,7 +14,13 @@ from data.synthetic_generator import (
     generate_synthetic_data,
     validate_uploaded_data,
     prepare_uploaded_data,
-    load_or_generate_data
+    load_or_generate_data,
+    read_uploaded_file,
+    get_file_format_help,
+    get_required_columns,
+    get_optional_columns,
+    apply_column_mapping,
+    auto_detect_columns
 )
 from etl.funnel_etl import (
     create_user_stage_flags,
@@ -27,7 +33,9 @@ from etl.funnel_etl import (
     run_funnel_analysis_sql,
     calculate_cohort_analysis,
     calculate_revenue_metrics,
-    get_user_journeys
+    get_user_journeys,
+    calculate_ab_comparison,
+    get_segment_options
 )
 from utils.plots import (
     create_funnel_chart,
@@ -39,7 +47,10 @@ from utils.plots import (
     create_cohort_heatmap,
     create_cohort_trend_chart,
     create_revenue_bar_chart,
-    create_revenue_distribution_chart
+    create_revenue_distribution_chart,
+    create_ab_comparison_funnel,
+    create_ab_conversion_comparison,
+    create_ab_summary_chart
 )
 
 
@@ -170,44 +181,98 @@ def render_sidebar(df: pd.DataFrame):
     uploaded_df = None
     if data_source == "Upload Your Data":
         st.sidebar.markdown("---")
-        st.sidebar.markdown("### Upload CSV File")
+        st.sidebar.markdown("### Upload Data File")
         
-        with st.sidebar.expander("Required CSV Format", expanded=False):
-            st.markdown("""
-            **Required columns:**
-            - `user_id` - Unique user identifier
-            - `event_name` - One of: visit, signup, activation, purchase
-            - `event_timestamp` - Event datetime
-            
-            **Optional columns:**
-            - `traffic_source` - e.g., organic, paid_search
-            - `device` - e.g., desktop, mobile, tablet
-            - `country` - e.g., USA, UK, Germany
-            - `revenue` - Purchase revenue (numeric)
-            """)
+        with st.sidebar.expander("Supported Formats & Requirements", expanded=False):
+            st.markdown(get_file_format_help())
         
         uploaded_file = st.sidebar.file_uploader(
-            "Choose a CSV file",
-            type="csv",
-            help="Upload your marketing event data in CSV format"
+            "Choose a file",
+            type=["csv", "xlsx", "xls", "json", "parquet"],
+            help="Upload your marketing event data (CSV, Excel, JSON, or Parquet)"
         )
         
         if uploaded_file is not None:
-            try:
-                uploaded_df = pd.read_csv(uploaded_file)
-                is_valid, errors = validate_uploaded_data(uploaded_df)
+            raw_df, error_msg = read_uploaded_file(uploaded_file)
+            
+            if error_msg:
+                st.sidebar.error(error_msg)
+            elif raw_df is not None:
+                with st.sidebar.expander("Data Preview", expanded=True):
+                    st.markdown(f"**{len(raw_df):,} rows, {len(raw_df.columns)} columns**")
+                    st.dataframe(raw_df.head(5), height=150)
                 
-                if is_valid:
-                    uploaded_df = prepare_uploaded_data(uploaded_df)
-                    st.sidebar.success(f"Loaded {len(uploaded_df):,} events from {uploaded_df['user_id'].nunique():,} users")
+                auto_mappings = auto_detect_columns(raw_df)
+                
+                needs_mapping = not all(col in raw_df.columns for col in get_required_columns())
+                
+                if needs_mapping:
+                    st.sidebar.markdown("### Column Mapping")
+                    st.sidebar.info("Map your columns to the required fields")
+                    
+                    source_columns = ["(none)"] + list(raw_df.columns)
+                    column_mapping = {}
+                    
+                    st.sidebar.markdown("**Required:**")
+                    for req_col in get_required_columns():
+                        default_idx = 0
+                        if req_col in auto_mappings and auto_mappings[req_col] in source_columns:
+                            default_idx = source_columns.index(auto_mappings[req_col])
+                        elif req_col in source_columns:
+                            default_idx = source_columns.index(req_col)
+                        
+                        column_mapping[req_col] = st.sidebar.selectbox(
+                            req_col,
+                            options=source_columns,
+                            index=default_idx,
+                            key=f"map_{req_col}"
+                        )
+                    
+                    st.sidebar.markdown("**Optional:**")
+                    for opt_col in get_optional_columns():
+                        default_idx = 0
+                        if opt_col in auto_mappings and auto_mappings[opt_col] in source_columns:
+                            default_idx = source_columns.index(auto_mappings[opt_col])
+                        elif opt_col in source_columns:
+                            default_idx = source_columns.index(opt_col)
+                        
+                        column_mapping[opt_col] = st.sidebar.selectbox(
+                            opt_col,
+                            options=source_columns,
+                            index=default_idx,
+                            key=f"map_{opt_col}"
+                        )
+                    
+                    missing_required = [k for k in get_required_columns() if column_mapping.get(k) == "(none)"]
+                    
+                    if missing_required:
+                        st.sidebar.warning(f"Please map required columns: {', '.join(missing_required)}")
+                        uploaded_df = None
+                    else:
+                        mapped_df = apply_column_mapping(raw_df, column_mapping)
+                        is_valid, errors = validate_uploaded_data(mapped_df)
+                        
+                        if is_valid:
+                            uploaded_df = prepare_uploaded_data(mapped_df)
+                            file_ext = uploaded_file.name.split('.')[-1].upper()
+                            st.sidebar.success(f"Loaded {len(uploaded_df):,} events from {uploaded_df['user_id'].nunique():,} users ({file_ext})")
+                        else:
+                            st.sidebar.error("Data validation failed:")
+                            for error in errors:
+                                st.sidebar.error(f"• {error}")
+                            uploaded_df = None
                 else:
-                    st.sidebar.error("Data validation failed:")
-                    for error in errors:
-                        st.sidebar.error(f"• {error}")
-                    uploaded_df = None
-            except Exception as e:
-                st.sidebar.error(f"Error reading file: {str(e)}")
-                uploaded_df = None
+                    is_valid, errors = validate_uploaded_data(raw_df)
+                    
+                    if is_valid:
+                        uploaded_df = prepare_uploaded_data(raw_df)
+                        file_ext = uploaded_file.name.split('.')[-1].upper()
+                        st.sidebar.success(f"Loaded {len(uploaded_df):,} events from {uploaded_df['user_id'].nunique():,} users ({file_ext})")
+                    else:
+                        st.sidebar.error("Data validation failed:")
+                        for error in errors:
+                            st.sidebar.error(f"• {error}")
+                        uploaded_df = None
     
     active_df = uploaded_df if uploaded_df is not None else df
     
@@ -622,6 +687,124 @@ def render_user_journeys(df: pd.DataFrame):
         create_export_section(export_journeys, "user_journeys")
 
 
+def render_ab_comparison(df: pd.DataFrame):
+    """Render A/B test comparison analysis."""
+    st.markdown('<div class="section-header">A/B Test Comparison</div>', unsafe_allow_html=True)
+    
+    st.markdown("Compare funnel performance between two segments to identify which performs better.")
+    
+    col1, col2, col3 = st.columns([1, 1, 2])
+    
+    with col1:
+        segment_type = st.selectbox(
+            "Compare By",
+            options=["traffic_source", "device", "country"],
+            format_func=lambda x: {"traffic_source": "Traffic Source", "device": "Device", "country": "Country"}[x],
+            help="Select the dimension to compare"
+        )
+    
+    segment_options = get_segment_options(df, segment_type)
+    
+    if len(segment_options) < 2:
+        st.warning(f"Need at least 2 different {segment_type.replace('_', ' ')} values for comparison.")
+        return
+    
+    with col2:
+        segment_a = st.selectbox(
+            "Segment A (Control)",
+            options=segment_options,
+            index=0,
+            key="ab_segment_a"
+        )
+    
+    with col3:
+        remaining_options = [s for s in segment_options if s != segment_a]
+        segment_b = st.selectbox(
+            "Segment B (Variant)",
+            options=remaining_options,
+            index=0 if remaining_options else None,
+            key="ab_segment_b"
+        )
+    
+    if segment_a and segment_b:
+        comparison = calculate_ab_comparison(df, segment_type, segment_a, segment_b)
+        
+        if "error" in comparison:
+            st.error(comparison["error"])
+            return
+        
+        summary = comparison["summary"]
+        
+        st.markdown("### Results Summary")
+        
+        winner = summary["comparison"]["winner"]
+        conv_lift = summary["comparison"]["conversion_lift"]
+        
+        if winner != "tie":
+            lift_text = f"+{conv_lift:.1f}%" if conv_lift > 0 else f"{conv_lift:.1f}%"
+            if winner == segment_a:
+                st.success(f"**{segment_a}** outperforms **{segment_b}** with {lift_text} higher conversion rate")
+            else:
+                st.info(f"**{segment_b}** outperforms **{segment_a}** with {abs(conv_lift):.1f}% higher conversion rate")
+        else:
+            st.info("Both segments have equal conversion rates")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown(f"#### {segment_a} (Control)")
+            metric_col1, metric_col2, metric_col3 = st.columns(3)
+            with metric_col1:
+                st.metric("Users", f"{summary['segment_a']['users']:,}")
+            with metric_col2:
+                st.metric("Conversion", f"{summary['segment_a']['conversion_rate']:.1f}%")
+            with metric_col3:
+                st.metric("ARPU", f"${summary['segment_a']['arpu']:.2f}")
+        
+        with col2:
+            st.markdown(f"#### {segment_b} (Variant)")
+            metric_col1, metric_col2, metric_col3 = st.columns(3)
+            with metric_col1:
+                st.metric("Users", f"{summary['segment_b']['users']:,}")
+            with metric_col2:
+                delta = summary['comparison']['conversion_diff']
+                st.metric("Conversion", f"{summary['segment_b']['conversion_rate']:.1f}%", 
+                         delta=f"{delta:+.1f}%" if delta != 0 else None)
+            with metric_col3:
+                arpu_delta = summary['comparison']['arpu_diff']
+                st.metric("ARPU", f"${summary['segment_b']['arpu']:.2f}",
+                         delta=f"${arpu_delta:+.2f}" if arpu_delta != 0 else None)
+        
+        st.markdown("### Funnel Comparison")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            fig = create_ab_comparison_funnel(
+                comparison["funnel_a"], comparison["funnel_b"],
+                segment_a, segment_b
+            )
+            st.plotly_chart(fig, key="ab_funnel_comparison")
+        
+        with col2:
+            fig = create_ab_conversion_comparison(
+                comparison["rates_a"], comparison["rates_b"],
+                segment_a, segment_b
+            )
+            st.plotly_chart(fig, key="ab_conversion_comparison")
+        
+        st.markdown("### Stage-by-Stage Comparison")
+        stage_comp = comparison["stage_comparison"].copy()
+        stage_comp["stage"] = stage_comp["stage"].str.title()
+        stage_comp.columns = ["Stage", f"{segment_a} Count", f"{segment_b} Count", 
+                              f"{segment_a} Rate (%)", f"{segment_b} Rate (%)", 
+                              "Rate Difference (%)", "Lift (%)"]
+        st.dataframe(stage_comp, hide_index=True)
+        
+        with st.expander("Export Comparison Data"):
+            create_export_section(stage_comp, "ab_comparison")
+
+
 def main():
     """Main application entry point."""
     st.markdown('<div class="main-header">Marketing Funnel Analysis</div>', unsafe_allow_html=True)
@@ -659,8 +842,8 @@ def main():
     
     render_kpis(processed_data["conversion_rates"], processed_data["user_flags"])
     
-    main_tab1, main_tab2, main_tab3, main_tab4 = st.tabs([
-        "Funnel Analysis", "Cohort Analysis", "Revenue Analytics", "User Journeys"
+    main_tab1, main_tab2, main_tab3, main_tab4, main_tab5 = st.tabs([
+        "Funnel Analysis", "Cohort Analysis", "Revenue Analytics", "User Journeys", "A/B Comparison"
     ])
     
     with main_tab1:
@@ -678,6 +861,9 @@ def main():
     
     with main_tab4:
         render_user_journeys(filtered_df)
+    
+    with main_tab5:
+        render_ab_comparison(filtered_df)
     
     st.markdown("---")
     st.markdown(
