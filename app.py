@@ -109,7 +109,7 @@ st.markdown("""
     }
     .sub-header {
         font-size: 1.1rem;
-        color: #6B7280;
+        opacity: 0.7;
         margin-bottom: 2rem;
     }
     .metric-card {
@@ -124,13 +124,20 @@ st.markdown("""
         margin-top: 2rem;
         margin-bottom: 1rem;
         padding-bottom: 0.5rem;
-        border-bottom: 2px solid #E5E7EB;
+        border-bottom: 2px solid rgba(128, 128, 128, 0.3);
     }
-    .stMetric {
-        background-color: #F9FAFB;
+    [data-testid="stMetric"] {
+        background-color: rgba(128, 128, 128, 0.1);
         padding: 1rem;
         border-radius: 0.5rem;
-        border: 1px solid #E5E7EB;
+        border: 1px solid rgba(128, 128, 128, 0.2);
+    }
+    [data-testid="stMetricValue"] {
+        color: inherit;
+    }
+    [data-testid="stMetricLabel"] {
+        color: inherit;
+        opacity: 0.8;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -868,7 +875,7 @@ def main():
     st.markdown("---")
     st.markdown(
         """
-        <div style="text-align: center; color: #9CA3AF; font-size: 0.875rem;">
+        <div style="text-align: center; opacity: 0.6; font-size: 0.875rem;">
             Marketing Funnel Analysis Dashboard | Built with Streamlit
         </div>
         """,
