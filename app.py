@@ -186,6 +186,33 @@ def render_sidebar(df: pd.DataFrame):
     )
     
     uploaded_df = None
+    
+    if data_source == "Demo Data (Synthetic)":
+        with st.sidebar.expander("Export Demo Data", expanded=False):
+            st.markdown("Download the synthetic dataset for external use")
+            col1, col2 = st.columns(2)
+            with col1:
+                csv_data = df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="CSV",
+                    data=csv_data,
+                    file_name="synthetic_funnel_data.csv",
+                    mime="text/csv",
+                    key="export_demo_csv"
+                )
+            with col2:
+                try:
+                    excel_data = convert_df_to_excel(df)
+                    st.download_button(
+                        label="Excel",
+                        data=excel_data,
+                        file_name="synthetic_funnel_data.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="export_demo_excel"
+                    )
+                except Exception:
+                    st.info("Excel export requires openpyxl")
+    
     if data_source == "Upload Your Data":
         st.sidebar.markdown("---")
         st.sidebar.markdown("### Upload Data File")
