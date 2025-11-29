@@ -1,7 +1,7 @@
 # Marketing Funnel Analysis Application
 
 ## Overview
-A comprehensive Streamlit-based data application for analyzing marketing funnels (visit → signup → activation → purchase). The app provides interactive visualizations, conversion rate analysis, multi-dimensional breakdowns, advanced analytics, and A/B testing capabilities to help understand user behavior through the marketing funnel.
+A comprehensive Streamlit-based data application for analyzing marketing funnels (visit → signup → activation → purchase). The app provides interactive visualizations, conversion rate analysis, multi-dimensional breakdowns, advanced analytics, A/B testing capabilities, and multi-company data storage using DuckDB.
 
 ## Current State
 - **Status**: Fully functional with all features complete
@@ -9,8 +9,19 @@ A comprehensive Streamlit-based data application for analyzing marketing funnels
 
 ## Features
 
+### Data Source Options
+- **Demo Data (Synthetic)**: 10,000 users with realistic drop-off rates for exploration
+- **Stored Company Data**: Load previously imported company data from DuckDB database
+- **Import New Company**: Import new company data with company name and file upload
+
+### Multi-Company Storage (DuckDB)
+- **Persistent Storage**: Company data stored in local DuckDB database (funnel_data.duckdb)
+- **Company Management**: View list of stored companies with user/event counts
+- **Data Import**: Upload and save company data with validation and type coercion
+- **Data Retrieval**: Load company data for analysis with SQL-based queries
+- **Company Deletion**: Remove companies and associated data
+
 ### Core Analytics
-- **Synthetic Data Generator**: Creates realistic demo data with 10,000 users and configurable drop-off rates
 - **Multi-Format Upload Support**: Import data in CSV, Excel (.xlsx, .xls), JSON, or Parquet formats
 - **Column Mapping Interface**: Auto-detection of columns with manual mapping option for custom schemas
 - **Interactive Filters**: Filter by traffic source, device, country, and date range
@@ -47,20 +58,23 @@ A comprehensive Streamlit-based data application for analyzing marketing funnels
 ### Export Functionality
 - **CSV Export**: Download analysis data as CSV files
 - **Excel Export**: Download formatted Excel spreadsheets with multiple sheets
+- **Demo Data Export**: Download synthetic data for external use
 - **Available for All Sections**: Breakdowns, cohorts, revenue, journeys, A/B comparisons
 
 ## Project Structure
 ```
-├── app.py                      # Main Streamlit application (1400+ lines)
+├── app.py                      # Main Streamlit application (1000+ lines)
 ├── data/
 │   ├── __init__.py
-│   └── synthetic_generator.py  # Synthetic data generation, multi-format file reading, column mapping
+│   ├── synthetic_generator.py  # Synthetic data generation, multi-format file reading, column mapping
+│   └── db_manager.py           # DuckDB database manager for multi-company storage
 ├── etl/
 │   ├── __init__.py
 │   └── funnel_etl.py           # ETL pipeline: funnel metrics, cohorts, revenue, journeys, A/B comparison
 ├── utils/
 │   ├── __init__.py
 │   └── plots.py                # Plotly visualization utilities (650+ lines)
+├── funnel_data.duckdb          # DuckDB database file (created on first run)
 ├── .streamlit/
 │   └── config.toml             # Streamlit configuration
 └── pyproject.toml              # Python dependencies
@@ -71,7 +85,7 @@ A comprehensive Streamlit-based data application for analyzing marketing funnels
 - **pandas**: Data manipulation and analysis
 - **numpy**: Numerical operations
 - **plotly**: Interactive visualizations
-- **duckdb**: SQL analytics on data files
+- **duckdb**: SQL analytics and persistent storage for multi-company data
 - **statsmodels**: Statistical computations
 - **openpyxl**: Excel file reading and writing
 - **pyarrow**: Parquet file support
@@ -81,6 +95,24 @@ The app runs automatically on port 5000:
 ```bash
 streamlit run app.py --server.port 5000
 ```
+
+## Database Schema (DuckDB)
+The application uses a DuckDB database with two main tables:
+
+**companies table:**
+- `company_id` - Primary key
+- `company_name` - Unique company identifier
+- `created_at` - Creation timestamp
+- `updated_at` - Last update timestamp
+
+**funnel_events table:**
+- `event_id` - Primary key
+- `company_id` - Foreign key to companies
+- `user_id` - User identifier
+- `event_name` - Event type (visit, signup, activation, purchase)
+- `event_timestamp` - Event datetime
+- `traffic_source`, `device`, `country` - Dimensions
+- `revenue` - Purchase revenue
 
 ## Data Upload Format
 When uploading custom data, the file should include:
@@ -105,12 +137,15 @@ When uploading custom data, the file should include:
 ## Architecture Decisions
 - Uses `st.cache_data` for performance optimization
 - Modular design with separate data, ETL, and visualization layers
-- DuckDB integration available for SQL-based analytics
+- DuckDB for persistent multi-company data storage with SQL analytics
 - Responsive layout with wide page configuration
 - BytesIO used for in-memory file generation (exports)
 - Conversion rates use `step_conversion_rate` column naming convention
+- Dark mode friendly styling with adaptive colors
 
 ## Key Implementation Notes
 - ETL functions in `funnel_etl.py` return DataFrames with `step_conversion_rate` (not `stage_conversion_rate`)
 - A/B comparison uses `calculate_ab_comparison()` function returning comparison DataFrame and summary dict
 - All export functions generate files in-memory using BytesIO for download buttons
+- Database manager (db_manager.py) handles all DuckDB operations with proper type coercion and validation
+- Company data is validated on save: timestamps coerced to datetime, event names validated

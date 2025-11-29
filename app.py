@@ -22,6 +22,16 @@ from data.synthetic_generator import (
     apply_column_mapping,
     auto_detect_columns
 )
+from data.db_manager import (
+    init_database,
+    get_all_companies,
+    get_company_names,
+    company_exists,
+    save_company_data,
+    load_company_data,
+    delete_company,
+    get_database_stats
+)
 from etl.funnel_etl import (
     create_user_stage_flags,
     calculate_funnel_counts,
@@ -177,12 +187,18 @@ def get_breakdown_data(user_flags: pd.DataFrame):
 
 def render_sidebar(df: pd.DataFrame):
     """Render sidebar with filters and data source options."""
+    init_database()
+    
     st.sidebar.markdown("## Data Source")
+    
+    stored_companies = get_company_names()
+    
+    data_source_options = ["Demo Data (Synthetic)", "Stored Company Data", "Import New Company"]
     
     data_source = st.sidebar.radio(
         "Choose data source:",
-        ["Demo Data (Synthetic)", "Upload Your Data"],
-        help="Use demo data to explore the app, or upload your own marketing event data"
+        data_source_options,
+        help="Use demo data, load from stored companies, or import new company data"
     )
     
     uploaded_df = None
@@ -213,9 +229,77 @@ def render_sidebar(df: pd.DataFrame):
                 except Exception:
                     st.info("Excel export requires openpyxl")
     
-    if data_source == "Upload Your Data":
+    elif data_source == "Stored Company Data":
         st.sidebar.markdown("---")
-        st.sidebar.markdown("### Upload Data File")
+        if len(stored_companies) == 0:
+            st.sidebar.info("No companies stored yet. Import data to get started.")
+        else:
+            selected_company = st.sidebar.selectbox(
+                "Select Company",
+                options=stored_companies,
+                help="Choose a company to analyze"
+            )
+            
+            if selected_company:
+                company_data = load_company_data(selected_company)
+                if company_data is not None and len(company_data) > 0:
+                    required_cols = ["user_id", "event_name", "event_timestamp"]
+                    missing_cols = [c for c in required_cols if c not in company_data.columns]
+                    if missing_cols:
+                        st.sidebar.error(f"Data corrupted. Missing columns: {', '.join(missing_cols)}")
+                    else:
+                        try:
+                            company_data["event_timestamp"] = pd.to_datetime(company_data["event_timestamp"])
+                            uploaded_df = company_data
+                            user_count = company_data["user_id"].nunique()
+                            event_count = len(company_data)
+                            st.sidebar.success(f"Loaded {event_count:,} events from {user_count:,} users")
+                        except Exception as e:
+                            st.sidebar.error(f"Error processing data: {str(e)}")
+                else:
+                    st.sidebar.error(f"No data found for {selected_company}. Try re-importing.")
+            
+            with st.sidebar.expander("Manage Companies", expanded=False):
+                companies_df = get_all_companies()
+                if len(companies_df) > 0:
+                    st.dataframe(
+                        companies_df[["company_name", "user_count", "event_count"]].rename(
+                            columns={"company_name": "Company", "user_count": "Users", "event_count": "Events"}
+                        ),
+                        hide_index=True,
+                        height=150
+                    )
+                    
+                    delete_company_name = st.selectbox(
+                        "Delete company:",
+                        options=["(Select to delete)"] + stored_companies,
+                        key="delete_company_select"
+                    )
+                    
+                    if delete_company_name != "(Select to delete)":
+                        if st.button(f"Delete '{delete_company_name}'", type="secondary"):
+                            success, message = delete_company(delete_company_name)
+                            if success:
+                                st.success(message)
+                                st.rerun()
+                            else:
+                                st.error(message)
+                
+                stats = get_database_stats()
+                st.caption(f"Total: {stats['total_companies']} companies, {stats['total_events']:,} events")
+    
+    elif data_source == "Import New Company":
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### Import Company Data")
+        
+        company_name = st.sidebar.text_input(
+            "Company Name",
+            placeholder="Enter company name",
+            help="Name to identify this company's data"
+        )
+        
+        if company_name and company_exists(company_name):
+            st.sidebar.warning(f"'{company_name}' already exists. Importing will replace existing data.")
         
         with st.sidebar.expander("Supported Formats & Requirements", expanded=False):
             st.markdown(get_file_format_help())
@@ -239,6 +323,8 @@ def render_sidebar(df: pd.DataFrame):
                 auto_mappings = auto_detect_columns(raw_df)
                 
                 needs_mapping = not all(col in raw_df.columns for col in get_required_columns())
+                
+                validated_df = None
                 
                 if needs_mapping:
                     st.sidebar.markdown("### Column Mapping")
@@ -281,32 +367,43 @@ def render_sidebar(df: pd.DataFrame):
                     
                     if missing_required:
                         st.sidebar.warning(f"Please map required columns: {', '.join(missing_required)}")
-                        uploaded_df = None
                     else:
                         mapped_df = apply_column_mapping(raw_df, column_mapping)
                         is_valid, errors = validate_uploaded_data(mapped_df)
                         
                         if is_valid:
-                            uploaded_df = prepare_uploaded_data(mapped_df)
-                            file_ext = uploaded_file.name.split('.')[-1].upper()
-                            st.sidebar.success(f"Loaded {len(uploaded_df):,} events from {uploaded_df['user_id'].nunique():,} users ({file_ext})")
+                            validated_df = prepare_uploaded_data(mapped_df)
                         else:
                             st.sidebar.error("Data validation failed:")
                             for error in errors:
                                 st.sidebar.error(f"• {error}")
-                            uploaded_df = None
                 else:
                     is_valid, errors = validate_uploaded_data(raw_df)
                     
                     if is_valid:
-                        uploaded_df = prepare_uploaded_data(raw_df)
-                        file_ext = uploaded_file.name.split('.')[-1].upper()
-                        st.sidebar.success(f"Loaded {len(uploaded_df):,} events from {uploaded_df['user_id'].nunique():,} users ({file_ext})")
+                        validated_df = prepare_uploaded_data(raw_df)
                     else:
                         st.sidebar.error("Data validation failed:")
                         for error in errors:
                             st.sidebar.error(f"• {error}")
-                        uploaded_df = None
+                
+                if validated_df is not None:
+                    user_count = validated_df['user_id'].nunique()
+                    event_count = len(validated_df)
+                    st.sidebar.info(f"Ready to import: {event_count:,} events from {user_count:,} users")
+                    
+                    if not company_name:
+                        st.sidebar.warning("Please enter a company name to save data")
+                    else:
+                        if st.sidebar.button("Save to Database", type="primary"):
+                            success, message = save_company_data(company_name, validated_df)
+                            if success:
+                                st.sidebar.success(message)
+                                st.balloons()
+                            else:
+                                st.sidebar.error(message)
+                        
+                        uploaded_df = validated_df
     
     active_df = uploaded_df if uploaded_df is not None else df
     
