@@ -181,30 +181,29 @@ def save_company_data(company_name: str, df: pd.DataFrame, replace: bool = True)
                 conn.close()
                 return False, f"Missing required column: {col}"
         
-        try:
-            events_df["event_timestamp"] = pd.to_datetime(
-                events_df["event_timestamp"], 
-                format="mixed",
-                dayfirst=False
-            )
-        except Exception:
+        if not pd.api.types.is_datetime64_any_dtype(events_df["event_timestamp"]):
             try:
                 events_df["event_timestamp"] = pd.to_datetime(
-                    events_df["event_timestamp"],
-                    infer_datetime_format=True
+                    events_df["event_timestamp"], 
+                    format="mixed",
+                    dayfirst=False
                 )
             except Exception:
                 events_df["event_timestamp"] = pd.to_datetime(
                     events_df["event_timestamp"],
                     errors="coerce"
                 )
-                invalid_count = events_df["event_timestamp"].isna().sum()
-                if invalid_count > 0:
-                    original_count = len(events_df)
-                    events_df = events_df.dropna(subset=["event_timestamp"])
-                    if len(events_df) == 0:
-                        conn.close()
-                        return False, f"All {original_count} timestamps were invalid and could not be parsed."
+        
+        invalid_count = events_df["event_timestamp"].isna().sum()
+        if invalid_count > 0:
+            original_count = len(events_df)
+            events_df = events_df.dropna(subset=["event_timestamp"])
+            if len(events_df) == 0:
+                conn.close()
+                return False, f"All {original_count} timestamps were invalid and could not be parsed."
+        
+        events_df["event_timestamp"] = events_df["event_timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        events_df["event_timestamp"] = pd.to_datetime(events_df["event_timestamp"])
         
         events_df["user_id"] = events_df["user_id"].astype(str)
         events_df["event_name"] = events_df["event_name"].astype(str).str.lower()
