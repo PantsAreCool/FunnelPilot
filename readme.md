@@ -1,5 +1,5 @@
 # Marketing Funnel Analysis Application
-
+ 
 ## Overview
 A comprehensive Streamlit-based data application for analyzing marketing funnels (visit → signup → activation → purchase). The app provides interactive visualizations, conversion rate analysis, multi-dimensional breakdowns, advanced analytics, A/B testing capabilities, and multi-company data storage using DuckDB.
 
