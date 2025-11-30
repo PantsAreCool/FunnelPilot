@@ -274,10 +274,12 @@ def filter_events(
         filtered = filtered[filtered["country"].isin(countries)]
     
     if start_date:
-        filtered = filtered[filtered["event_timestamp"] >= pd.to_datetime(start_date)]
+        start_dt = pd.to_datetime(start_date)
+        filtered = filtered[filtered["event_timestamp"] >= start_dt]
     
     if end_date:
-        filtered = filtered[filtered["event_timestamp"] <= pd.to_datetime(end_date)]
+        end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        filtered = filtered[filtered["event_timestamp"] <= end_dt]
     
     return filtered
 

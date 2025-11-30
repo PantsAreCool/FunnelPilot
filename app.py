@@ -945,7 +945,7 @@ def main():
     
     filters = render_sidebar(synthetic_df)
     
-    if filters["data_source"] == "Upload Your Data" and filters["uploaded_df"] is not None:
+    if filters["uploaded_df"] is not None:
         active_df = filters["uploaded_df"]
     else:
         active_df = synthetic_df
