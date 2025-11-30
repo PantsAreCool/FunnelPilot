@@ -209,9 +209,14 @@ def validate_uploaded_data(df: pd.DataFrame) -> tuple[bool, list[str]]:
         errors.append("Data must contain at least 'visit' events")
     
     try:
-        df["event_timestamp"] = pd.to_datetime(df["event_timestamp"])
+        pd.to_datetime(df["event_timestamp"], format="mixed", dayfirst=False)
     except Exception:
-        errors.append("Could not parse event_timestamp column as datetime")
+        try:
+            pd.to_datetime(df["event_timestamp"], infer_datetime_format=True)
+        except Exception:
+            test_parse = pd.to_datetime(df["event_timestamp"], errors="coerce")
+            if test_parse.isna().all():
+                errors.append("Could not parse event_timestamp column as datetime")
     
     if errors:
         return False, errors
@@ -231,7 +236,13 @@ def prepare_uploaded_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
     
-    df["event_timestamp"] = pd.to_datetime(df["event_timestamp"])
+    try:
+        df["event_timestamp"] = pd.to_datetime(df["event_timestamp"], format="mixed", dayfirst=False)
+    except Exception:
+        try:
+            df["event_timestamp"] = pd.to_datetime(df["event_timestamp"], infer_datetime_format=True)
+        except Exception:
+            df["event_timestamp"] = pd.to_datetime(df["event_timestamp"], errors="coerce")
     
     if "traffic_source" not in df.columns:
         df["traffic_source"] = "unknown"
