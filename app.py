@@ -138,16 +138,42 @@ st.markdown("""
     }
     [data-testid="stMetric"] {
         background-color: rgba(128, 128, 128, 0.1);
-        padding: 1rem;
+        padding: 0.75rem;
         border-radius: 0.5rem;
         border: 1px solid rgba(128, 128, 128, 0.2);
+        min-width: 0;
+        overflow: hidden;
     }
     [data-testid="stMetricValue"] {
         color: inherit;
+        font-size: clamp(1rem, 2vw, 1.75rem) !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     [data-testid="stMetricLabel"] {
         color: inherit;
         opacity: 0.8;
+        font-size: clamp(0.75rem, 1.2vw, 0.875rem) !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    [data-testid="stMetricDelta"] {
+        font-size: clamp(0.65rem, 1vw, 0.8rem) !important;
+    }
+    @media (max-width: 1200px) {
+        [data-testid="stMetricValue"] {
+            font-size: clamp(0.9rem, 1.8vw, 1.5rem) !important;
+        }
+    }
+    @media (max-width: 768px) {
+        [data-testid="stMetric"] {
+            padding: 0.5rem;
+        }
+        [data-testid="stMetricValue"] {
+            font-size: clamp(0.8rem, 3vw, 1.25rem) !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
