@@ -2,7 +2,7 @@ modules = ["python-3.11"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["arrow-cpp", "glibcLocales", "openssl", "pkg-config"]
+packages = ["arrow-cpp", "cargo", "glibcLocales", "libiconv", "openssl", "pkg-config", "rustc"]
 
 [deployment]
 deploymentTarget = "autoscale"
