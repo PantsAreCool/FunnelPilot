@@ -206,34 +206,70 @@ def logout():
 
 def render_login_page():
     """Render the login page."""
+    from data.db_manager import register_company_with_user
+    
     init_database()
     create_admin_if_needed()
     
     st.markdown('<div class="main-header">Marketing Funnel Analysis</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Please log in to access the dashboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Please log in or register to access the dashboard</div>', unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        st.markdown("### Login")
+        login_tab, register_tab = st.tabs(["Login", "Register New Company"])
         
-        with st.form("login_form"):
-            username = st.text_input("Username")
-            password = st.text_input("Password", type="password")
-            submitted = st.form_submit_button("Login", use_container_width=True)
-            
-            if submitted:
-                if username and password:
-                    user = authenticate_user(username, password)
-                    if user:
-                        st.session_state.authenticated = True
-                        st.session_state.user = user
-                        st.session_state.show_login = False
-                        st.rerun()
+        with login_tab:
+            with st.form("login_form"):
+                username = st.text_input("Username")
+                password = st.text_input("Password", type="password")
+                submitted = st.form_submit_button("Login", use_container_width=True)
+                
+                if submitted:
+                    if username and password:
+                        user = authenticate_user(username, password)
+                        if user:
+                            st.session_state.authenticated = True
+                            st.session_state.user = user
+                            st.session_state.show_login = False
+                            st.rerun()
+                        else:
+                            st.error("Invalid username or password")
                     else:
-                        st.error("Invalid username or password")
-                else:
-                    st.warning("Please enter both username and password")
+                        st.warning("Please enter both username and password")
+        
+        with register_tab:
+            st.markdown("Create a new company account to start analyzing your marketing funnel data.")
+            
+            with st.form("register_form"):
+                reg_company = st.text_input("Company Name", help="Your company or organization name")
+                reg_username = st.text_input("Choose a Username")
+                reg_password = st.text_input("Choose a Password", type="password")
+                reg_password_confirm = st.text_input("Confirm Password", type="password")
+                reg_email = st.text_input("Email (optional)", help="For account recovery and notifications")
+                
+                register_submitted = st.form_submit_button("Create Account", use_container_width=True)
+                
+                if register_submitted:
+                    if not reg_company or not reg_username or not reg_password:
+                        st.warning("Please fill in company name, username, and password")
+                    elif reg_password != reg_password_confirm:
+                        st.error("Passwords do not match")
+                    elif len(reg_password) < 6:
+                        st.error("Password must be at least 6 characters")
+                    else:
+                        email = reg_email.strip() if reg_email else None
+                        success, message = register_company_with_user(
+                            company_name=reg_company.strip(),
+                            username=reg_username.strip(),
+                            password=reg_password,
+                            email=email
+                        )
+                        if success:
+                            st.success(message)
+                            st.info("Switch to the Login tab to sign in with your new account.")
+                        else:
+                            st.error(message)
         
         st.markdown("---")
         st.info("**Demo Mode:** Use demo data without logging in")
@@ -242,14 +278,6 @@ def render_login_page():
             st.session_state.user = {"role": "guest", "username": "Guest", "company_id": None, "company_name": None}
             st.session_state.show_login = False
             st.rerun()
-        
-        with st.expander("First time? Default admin credentials"):
-            st.markdown("""
-            - **Username:** admin
-            - **Password:** admin123
-            
-            Please change the admin password after first login.
-            """)
 
 
 def render_admin_dashboard():
@@ -291,7 +319,7 @@ def render_admin_dashboard():
         users = get_all_users()
         if len(users) > 0:
             users_display = users.copy()
-            users_display.columns = ["ID", "Username", "Role", "Company ID", "Company Name", "Created", "Updated"]
+            users_display.columns = ["ID", "Username", "Role", "Company ID", "Company Name", "Email", "Created", "Updated"]
             st.dataframe(users_display, hide_index=True)
         else:
             st.info("No users found.")

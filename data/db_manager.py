@@ -80,11 +80,17 @@ def init_database():
                 password_hash VARCHAR NOT NULL,
                 role VARCHAR NOT NULL DEFAULT 'company',
                 company_id INTEGER,
+                email VARCHAR,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (company_id) REFERENCES companies(company_id)
             )
         """)
+        
+        try:
+            conn.execute("ALTER TABLE app_users ADD COLUMN email VARCHAR")
+        except:
+            pass
         
         conn.execute("""
             CREATE SEQUENCE IF NOT EXISTS user_id_seq START 1
@@ -458,7 +464,7 @@ def user_exists(username: str) -> bool:
     return result > 0
 
 
-def create_user(username: str, password: str, role: str = "company", company_id: Optional[int] = None) -> Tuple[bool, str]:
+def create_user(username: str, password: str, role: str = "company", company_id: Optional[int] = None, email: Optional[str] = None) -> Tuple[bool, str]:
     """
     Create a new user account.
     
@@ -467,6 +473,7 @@ def create_user(username: str, password: str, role: str = "company", company_id:
         password: Plain text password (will be hashed)
         role: 'admin' or 'company'
         company_id: Required for company users, links to their company
+        email: Optional email address
     
     Returns:
         Tuple of (success, message)
@@ -489,10 +496,10 @@ def create_user(username: str, password: str, role: str = "company", company_id:
         
         conn.execute(
             """
-            INSERT INTO app_users (user_id, username, password_hash, role, company_id)
-            VALUES (nextval('user_id_seq'), ?, ?, ?, ?)
+            INSERT INTO app_users (user_id, username, password_hash, role, company_id, email)
+            VALUES (nextval('user_id_seq'), ?, ?, ?, ?, ?)
             """,
-            [username, password_hash, role, company_id]
+            [username, password_hash, role, company_id, email]
         )
         
         conn.close()
@@ -558,6 +565,7 @@ def get_all_users() -> pd.DataFrame:
             u.role,
             u.company_id,
             c.company_name,
+            u.email,
             u.created_at,
             u.updated_at
         FROM app_users u
@@ -655,3 +663,41 @@ def create_admin_if_needed(username: str = "admin", password: str = "admin123") 
         return False, "Admin user already exists"
     
     return create_user(username, password, role="admin", company_id=None)
+
+
+def register_company_with_user(company_name: str, username: str, password: str, email: Optional[str] = None) -> Tuple[bool, str]:
+    """
+    Register a new company and create a user account linked to it.
+    
+    Args:
+        company_name: Name for the new company
+        username: Username for the new account
+        password: Password for the new account
+        email: Optional email address
+    
+    Returns:
+        Tuple of (success, message)
+    """
+    init_database()
+    
+    if company_exists(company_name):
+        return False, f"Company '{company_name}' already exists. Please contact the administrator."
+    
+    if user_exists(username):
+        return False, f"Username '{username}' is already taken. Please choose another."
+    
+    try:
+        company_id = create_company(company_name)
+        
+        success, msg = create_user(username, password, role="company", company_id=company_id, email=email)
+        
+        if not success:
+            conn = get_connection()
+            conn.execute("DELETE FROM companies WHERE company_id = ?", [company_id])
+            conn.close()
+            return False, msg
+        
+        return True, f"Account created successfully! You can now log in as '{username}'."
+        
+    except Exception as e:
+        return False, f"Registration failed: {str(e)}"
