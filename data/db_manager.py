@@ -2,10 +2,12 @@
 DuckDB Database Manager for Multi-Company Funnel Data Storage
 
 Provides persistent storage for marketing funnel data from multiple companies.
+Includes user authentication with bcrypt password hashing.
 """
 
 import duckdb
 import pandas as pd
+import bcrypt
 from datetime import datetime
 from typing import Optional, List, Tuple
 import os
@@ -71,9 +73,31 @@ def init_database():
             CREATE INDEX IF NOT EXISTS idx_events_user ON funnel_events(company_id, user_id)
         """)
         
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS app_users (
+                user_id INTEGER PRIMARY KEY,
+                username VARCHAR UNIQUE NOT NULL,
+                password_hash VARCHAR NOT NULL,
+                role VARCHAR NOT NULL DEFAULT 'company',
+                company_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (company_id) REFERENCES companies(company_id)
+            )
+        """)
+        
+        conn.execute("""
+            CREATE SEQUENCE IF NOT EXISTS user_id_seq START 1
+        """)
+        
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_users_username ON app_users(username)
+        """)
+        
         _db_initialized = True
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Database initialization error: {str(e)}")
+        raise
     finally:
         conn.close()
 
@@ -403,3 +427,231 @@ def get_database_stats() -> dict:
     
     conn.close()
     return stats
+
+
+def hash_password(password: str) -> str:
+    """Hash a password using bcrypt."""
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
+    return hashed.decode("utf-8")
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    """Verify a password against its hash."""
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+    except Exception:
+        return False
+
+
+def user_exists(username: str) -> bool:
+    """Check if a username already exists."""
+    init_database()
+    conn = get_connection()
+    
+    result = conn.execute(
+        "SELECT COUNT(*) FROM app_users WHERE username = ?",
+        [username]
+    ).fetchone()[0]
+    
+    conn.close()
+    return result > 0
+
+
+def create_user(username: str, password: str, role: str = "company", company_id: Optional[int] = None) -> Tuple[bool, str]:
+    """
+    Create a new user account.
+    
+    Args:
+        username: Unique username
+        password: Plain text password (will be hashed)
+        role: 'admin' or 'company'
+        company_id: Required for company users, links to their company
+    
+    Returns:
+        Tuple of (success, message)
+    """
+    init_database()
+    
+    if user_exists(username):
+        return False, f"Username '{username}' already exists"
+    
+    if role == "company" and company_id is None:
+        return False, "Company users must be linked to a company"
+    
+    if role not in ["admin", "company"]:
+        return False, "Role must be 'admin' or 'company'"
+    
+    conn = get_connection()
+    
+    try:
+        password_hash = hash_password(password)
+        
+        conn.execute(
+            """
+            INSERT INTO app_users (user_id, username, password_hash, role, company_id)
+            VALUES (nextval('user_id_seq'), ?, ?, ?, ?)
+            """,
+            [username, password_hash, role, company_id]
+        )
+        
+        conn.close()
+        return True, f"User '{username}' created successfully"
+        
+    except Exception as e:
+        conn.close()
+        return False, f"Error creating user: {str(e)}"
+
+
+def authenticate_user(username: str, password: str) -> Optional[dict]:
+    """
+    Authenticate a user and return their info if successful.
+    
+    Args:
+        username: Username to authenticate
+        password: Plain text password
+    
+    Returns:
+        Dictionary with user info (user_id, username, role, company_id, company_name) or None
+    """
+    init_database()
+    conn = get_connection()
+    
+    result = conn.execute(
+        """
+        SELECT u.user_id, u.username, u.password_hash, u.role, u.company_id, c.company_name
+        FROM app_users u
+        LEFT JOIN companies c ON u.company_id = c.company_id
+        WHERE u.username = ?
+        """,
+        [username]
+    ).fetchone()
+    
+    conn.close()
+    
+    if result is None:
+        return None
+    
+    user_id, db_username, password_hash, role, company_id, company_name = result
+    
+    if not verify_password(password, password_hash):
+        return None
+    
+    return {
+        "user_id": user_id,
+        "username": db_username,
+        "role": role,
+        "company_id": company_id,
+        "company_name": company_name
+    }
+
+
+def get_all_users() -> pd.DataFrame:
+    """Get list of all users with company info (for admin use)."""
+    init_database()
+    conn = get_connection()
+    
+    result = conn.execute("""
+        SELECT 
+            u.user_id,
+            u.username,
+            u.role,
+            u.company_id,
+            c.company_name,
+            u.created_at,
+            u.updated_at
+        FROM app_users u
+        LEFT JOIN companies c ON u.company_id = c.company_id
+        ORDER BY u.username
+    """).fetchdf()
+    
+    conn.close()
+    return result
+
+
+def delete_user(username: str) -> Tuple[bool, str]:
+    """Delete a user account."""
+    init_database()
+    conn = get_connection()
+    
+    try:
+        if not user_exists(username):
+            conn.close()
+            return False, f"User '{username}' not found"
+        
+        conn.execute("DELETE FROM app_users WHERE username = ?", [username])
+        conn.close()
+        return True, f"User '{username}' deleted successfully"
+        
+    except Exception as e:
+        conn.close()
+        return False, f"Error deleting user: {str(e)}"
+
+
+def update_user_password(username: str, new_password: str) -> Tuple[bool, str]:
+    """Update a user's password."""
+    init_database()
+    
+    if not user_exists(username):
+        return False, f"User '{username}' not found"
+    
+    conn = get_connection()
+    
+    try:
+        password_hash = hash_password(new_password)
+        
+        conn.execute(
+            """
+            UPDATE app_users 
+            SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE username = ?
+            """,
+            [password_hash, username]
+        )
+        
+        conn.close()
+        return True, f"Password updated for '{username}'"
+        
+    except Exception as e:
+        conn.close()
+        return False, f"Error updating password: {str(e)}"
+
+
+def get_users_for_company(company_id: int) -> pd.DataFrame:
+    """Get all users linked to a specific company."""
+    init_database()
+    conn = get_connection()
+    
+    result = conn.execute(
+        """
+        SELECT user_id, username, role, created_at
+        FROM app_users
+        WHERE company_id = ?
+        ORDER BY username
+        """,
+        [company_id]
+    ).fetchdf()
+    
+    conn.close()
+    return result
+
+
+def admin_exists() -> bool:
+    """Check if any admin user exists."""
+    init_database()
+    conn = get_connection()
+    
+    result = conn.execute(
+        "SELECT COUNT(*) FROM app_users WHERE role = 'admin'"
+    ).fetchone()[0]
+    
+    conn.close()
+    return result > 0
+
+
+def create_admin_if_needed(username: str = "admin", password: str = "admin123") -> Tuple[bool, str]:
+    """Create default admin account if no admin exists."""
+    if admin_exists():
+        return False, "Admin user already exists"
+    
+    return create_user(username, password, role="admin", company_id=None)

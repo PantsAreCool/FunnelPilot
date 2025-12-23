@@ -26,11 +26,19 @@ from data.db_manager import (
     init_database,
     get_all_companies,
     get_company_names,
+    get_company_id,
     company_exists,
     save_company_data,
     load_company_data,
     delete_company,
-    get_database_stats
+    get_database_stats,
+    authenticate_user,
+    create_user,
+    delete_user,
+    update_user_password,
+    get_all_users,
+    admin_exists,
+    create_admin_if_needed
 )
 from etl.funnel_etl import (
     create_user_stage_flags,
@@ -179,6 +187,209 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def init_session_state():
+    """Initialize session state for authentication."""
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    if "user" not in st.session_state:
+        st.session_state.user = None
+    if "show_login" not in st.session_state:
+        st.session_state.show_login = True
+
+
+def logout():
+    """Log out the current user."""
+    st.session_state.authenticated = False
+    st.session_state.user = None
+    st.session_state.show_login = True
+
+
+def render_login_page():
+    """Render the login page."""
+    init_database()
+    create_admin_if_needed()
+    
+    st.markdown('<div class="main-header">Marketing Funnel Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Please log in to access the dashboard</div>', unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.markdown("### Login")
+        
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Login", use_container_width=True)
+            
+            if submitted:
+                if username and password:
+                    user = authenticate_user(username, password)
+                    if user:
+                        st.session_state.authenticated = True
+                        st.session_state.user = user
+                        st.session_state.show_login = False
+                        st.rerun()
+                    else:
+                        st.error("Invalid username or password")
+                else:
+                    st.warning("Please enter both username and password")
+        
+        st.markdown("---")
+        st.info("**Demo Mode:** Use demo data without logging in")
+        if st.button("Continue as Guest (Demo Only)", use_container_width=True):
+            st.session_state.authenticated = True
+            st.session_state.user = {"role": "guest", "username": "Guest", "company_id": None, "company_name": None}
+            st.session_state.show_login = False
+            st.rerun()
+        
+        with st.expander("First time? Default admin credentials"):
+            st.markdown("""
+            - **Username:** admin
+            - **Password:** admin123
+            
+            Please change the admin password after first login.
+            """)
+
+
+def render_admin_dashboard():
+    """Render the admin dashboard for managing companies and users."""
+    st.markdown("## Admin Dashboard")
+    
+    admin_tab1, admin_tab2, admin_tab3 = st.tabs(["Companies", "Users", "System Stats"])
+    
+    with admin_tab1:
+        st.markdown("### Manage Companies")
+        
+        companies = get_all_companies()
+        if len(companies) > 0:
+            companies_display = companies.copy()
+            companies_display.columns = ["ID", "Company Name", "Created", "Updated", "Users", "Events"]
+            st.dataframe(companies_display, hide_index=True)
+            
+            st.markdown("#### Delete Company")
+            company_to_delete = st.selectbox(
+                "Select company to delete:",
+                options=[""] + companies["company_name"].tolist(),
+                key="admin_delete_company"
+            )
+            
+            if company_to_delete:
+                if st.button(f"Delete '{company_to_delete}'", type="primary"):
+                    success, message = delete_company(company_to_delete)
+                    if success:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+        else:
+            st.info("No companies stored yet.")
+    
+    with admin_tab2:
+        st.markdown("### Manage Users")
+        
+        users = get_all_users()
+        if len(users) > 0:
+            users_display = users.copy()
+            users_display.columns = ["ID", "Username", "Role", "Company ID", "Company Name", "Created", "Updated"]
+            st.dataframe(users_display, hide_index=True)
+        else:
+            st.info("No users found.")
+        
+        st.markdown("#### Create New User")
+        with st.form("create_user_form"):
+            new_username = st.text_input("Username")
+            new_password = st.text_input("Password", type="password")
+            new_role = st.selectbox("Role", ["company", "admin"])
+            
+            company_names = get_company_names()
+            selected_company = None
+            if new_role == "company":
+                if company_names:
+                    selected_company = st.selectbox("Link to Company", options=company_names)
+                else:
+                    st.warning("No companies available. Create a company first.")
+            
+            if st.form_submit_button("Create User"):
+                if new_username and new_password:
+                    company_id = None
+                    if new_role == "company":
+                        if selected_company:
+                            company_id = get_company_id(selected_company)
+                        if not company_id:
+                            st.error("Company users must be linked to a valid company")
+                        else:
+                            success, message = create_user(new_username, new_password, new_role, company_id)
+                            if success:
+                                st.success(message)
+                                st.rerun()
+                            else:
+                                st.error(message)
+                    else:
+                        success, message = create_user(new_username, new_password, new_role, company_id)
+                        if success:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
+                else:
+                    st.warning("Please fill all fields")
+        
+        st.markdown("#### Delete User")
+        if len(users) > 0:
+            user_to_delete = st.selectbox(
+                "Select user to delete:",
+                options=[""] + users["username"].tolist(),
+                key="admin_delete_user"
+            )
+            
+            if user_to_delete and user_to_delete != st.session_state.user.get("username"):
+                if st.button(f"Delete '{user_to_delete}'"):
+                    success, message = delete_user(user_to_delete)
+                    if success:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+            elif user_to_delete == st.session_state.user.get("username"):
+                st.warning("You cannot delete your own account")
+        
+        st.markdown("#### Reset Password")
+        if len(users) > 0:
+            user_to_reset = st.selectbox(
+                "Select user:",
+                options=[""] + users["username"].tolist(),
+                key="admin_reset_password"
+            )
+            
+            if user_to_reset:
+                new_pwd = st.text_input("New Password", type="password", key="new_password_input")
+                if st.button("Reset Password"):
+                    if new_pwd:
+                        success, message = update_user_password(user_to_reset, new_pwd)
+                        if success:
+                            st.success(message)
+                        else:
+                            st.error(message)
+                    else:
+                        st.warning("Please enter a new password")
+    
+    with admin_tab3:
+        st.markdown("### System Statistics")
+        
+        stats = get_database_stats()
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Companies", stats.get("total_companies", 0))
+        with col2:
+            st.metric("Total Events", f"{stats.get('total_events', 0):,}")
+        with col3:
+            st.metric("Unique Users", f"{stats.get('total_users', 0):,}")
+        with col4:
+            st.metric("Database Size", f"{stats.get('db_size_mb', 0):.2f} MB")
+
+
 @st.cache_data
 def load_synthetic_data():
     """Load or generate synthetic data with caching."""
@@ -211,25 +422,69 @@ def get_breakdown_data(user_flags: pd.DataFrame):
     }
 
 
-def render_sidebar(df: pd.DataFrame):
-    """Render sidebar with filters and data source options."""
+def render_sidebar(df: pd.DataFrame, user_role: str = "guest", user_company_name: str = None):
+    """Render sidebar with filters and data source options based on user role."""
     init_database()
     
+    user = st.session_state.get("user", {})
+    
+    st.sidebar.markdown(f"**Logged in as:** {user.get('username', 'Guest')}")
+    if user.get("role") == "company":
+        st.sidebar.markdown(f"**Company:** {user.get('company_name', 'N/A')}")
+    elif user.get("role") == "admin":
+        st.sidebar.markdown("**Role:** Administrator")
+    
+    if st.sidebar.button("Logout", key="logout_btn"):
+        logout()
+        st.rerun()
+    
+    st.sidebar.markdown("---")
     st.sidebar.markdown("## Data Source")
     
     stored_companies = get_company_names()
     
-    data_source_options = ["Demo Data (Synthetic)", "Stored Company Data", "Import New Company"]
+    if user_role == "guest":
+        data_source_options = ["Demo Data (Synthetic)"]
+    elif user_role == "company":
+        data_source_options = ["Company Data"]
+    else:
+        data_source_options = ["Demo Data (Synthetic)", "Stored Company Data", "Import New Company"]
     
-    data_source = st.sidebar.radio(
-        "Choose data source:",
-        data_source_options,
-        help="Use demo data, load from stored companies, or import new company data"
-    )
+    if len(data_source_options) > 1:
+        data_source = st.sidebar.radio(
+            "Choose data source:",
+            data_source_options,
+            help="Use demo data, load from stored companies, or import new company data"
+        )
+    else:
+        data_source = data_source_options[0]
+        st.sidebar.info(f"Viewing: {data_source}")
     
     uploaded_df = None
     
-    if data_source == "Demo Data (Synthetic)":
+    no_company_data = False
+    
+    if data_source == "Company Data" and user_role == "company":
+        if user_company_name:
+            company_data = load_company_data(user_company_name)
+            if company_data is not None and len(company_data) > 0:
+                try:
+                    company_data["event_timestamp"] = pd.to_datetime(company_data["event_timestamp"])
+                    uploaded_df = company_data
+                    user_count = company_data["user_id"].nunique()
+                    event_count = len(company_data)
+                    st.sidebar.success(f"Loaded {event_count:,} events from {user_count:,} users")
+                except Exception as e:
+                    st.sidebar.error(f"Error loading data: {str(e)}")
+                    no_company_data = True
+            else:
+                st.sidebar.error("No data found for your company. Please contact admin to upload your data.")
+                no_company_data = True
+        else:
+            st.sidebar.error("No company linked to your account. Please contact admin.")
+            no_company_data = True
+    
+    elif data_source == "Demo Data (Synthetic)":
         with st.sidebar.expander("Export Demo Data", expanded=False):
             st.markdown("Download the synthetic dataset for external use")
             col1, col2 = st.columns(2)
@@ -483,7 +738,8 @@ def render_sidebar(df: pd.DataFrame):
         "devices": selected_devices if selected_devices else None,
         "countries": selected_countries if selected_countries else None,
         "start_date": str(start_date),
-        "end_date": str(end_date)
+        "end_date": str(end_date),
+        "no_company_data": no_company_data
     }
 
 
@@ -962,19 +1218,34 @@ def render_ab_comparison(df: pd.DataFrame):
             create_export_section(stage_comp, "ab_comparison")
 
 
-def main():
-    """Main application entry point."""
+def render_dashboard():
+    """Render the main dashboard for authenticated users."""
+    user = st.session_state.get("user", {})
+    user_role = user.get("role", "guest")
+    user_company_name = user.get("company_name")
+    
     st.markdown('<div class="main-header">Marketing Funnel Analysis</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Analyze your marketing funnel performance with interactive visualizations</div>', unsafe_allow_html=True)
     
     synthetic_df = load_synthetic_data()
     
-    filters = render_sidebar(synthetic_df)
+    filters = render_sidebar(synthetic_df, user_role=user_role, user_company_name=user_company_name)
+    
+    if filters.get("no_company_data") and user_role == "company":
+        st.error("No data available for your company. Please contact your administrator to have your data uploaded.")
+        st.info("Once your company data is uploaded, you'll be able to see your funnel analysis here.")
+        return
     
     if filters["uploaded_df"] is not None:
         active_df = filters["uploaded_df"]
     else:
         active_df = synthetic_df
+    
+    if user_role == "admin":
+        show_admin = st.sidebar.checkbox("Show Admin Dashboard", value=False)
+        if show_admin:
+            render_admin_dashboard()
+            return
     
     filtered_df = filter_events(
         active_df,
@@ -1031,6 +1302,16 @@ def main():
         """,
         unsafe_allow_html=True
     )
+
+
+def main():
+    """Main application entry point with authentication."""
+    init_session_state()
+    
+    if not st.session_state.authenticated:
+        render_login_page()
+    else:
+        render_dashboard()
 
 
 if __name__ == "__main__":
