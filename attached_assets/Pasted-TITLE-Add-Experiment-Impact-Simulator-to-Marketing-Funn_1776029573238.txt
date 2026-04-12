@@ -1,0 +1,139 @@
+TITLE: Add Experiment Impact Simulator to Marketing Funnel App
+
+PROMPT:
+
+Extend the existing Streamlit-based Marketing Funnel Analysis app by adding an Experiment Impact Simulator feature that allows users to simulate improvements in funnel conversion rates and estimate downstream impact on users and revenue.
+
+🧠 Feature Overview
+
+Add a new section to the app called:
+
+“Experiment Impact Simulator”
+
+This feature should:
+
+Let users simulate improvements at any stage of the funnel:
+visit → signup
+signup → activation
+activation → purchase
+Show how changes propagate through the funnel
+Estimate impact on:
+total conversions
+overall conversion rate
+revenue (if available)
+📊 Inputs (Sidebar Controls)
+
+Add interactive controls in the sidebar:
+
+Slider: % improvement in visit → signup
+Slider: % improvement in signup → activation
+Slider: % improvement in activation → purchase
+
+Example:
+
+Range: 0% to +50%
+Step: 1%
+
+Optional:
+
+Toggle: “Apply improvement to specific segment only”
+Dropdown: traffic_source / device / country
+⚙️ Core Logic
+Use existing funnel counts:
+visited
+signed_up
+activated
+purchased
+
+Compute baseline conversion rates:
+
+conv1 = signed_up / visited
+conv2 = activated / signed_up
+conv3 = purchased / activated
+
+Apply simulated improvements:
+
+new_conv1 = conv1 * (1 + lift1)
+new_conv2 = conv2 * (1 + lift2)
+new_conv3 = conv3 * (1 + lift3)
+
+Recompute funnel:
+
+new_signed_up = visited * new_conv1
+new_activated = new_signed_up * new_conv2
+new_purchased = new_activated * new_conv3
+Calculate:
+Incremental users gained at each stage
+
+Incremental revenue:
+
+revenue_per_user = total_revenue / purchased
+new_revenue = new_purchased * revenue_per_user
+📈 Visual Outputs
+
+Add a dedicated section in the main page:
+
+1. Side-by-side Funnel Comparison
+Baseline vs Simulated funnel (Plotly funnel chart)
+2. KPI Delta Panel
+
+Display:
+
++X additional signups
++X additional activations
++X additional purchases
++X% overall conversion lift
++$X revenue increase
+3. Impact Breakdown Chart
+Bar chart showing incremental gains per stage
+🧠 Insight Generation (IMPORTANT)
+
+Add a simple insight box that explains results in plain English:
+
+Example:
+
+“Improving signup conversion by 10% results in ~18% more purchases due to compounding effects downstream. This suggests optimizing the signup flow has the highest leverage.”
+
+Generate this dynamically using computed values.
+
+🧩 Code Organization
+
+Add new module:
+
+utils/simulator.py
+
+Functions:
+
+compute_baseline_metrics(df)
+simulate_funnel_impact(metrics, lifts)
+estimate_revenue_impact(...)
+
+Keep logic modular and reusable.
+
+⚡ Performance
+
+Cache computations using:
+
+@st.cache_data
+🎯 UX Requirements
+Clean layout
+Clear labels (“Baseline vs Simulated”)
+All results update instantly when sliders change
+Keep consistent styling with existing app
+🧪 Optional Enhancements (if easy)
+Add confidence range (±10%) to simulate uncertainty
+Add preset scenarios:
+“Improve signup UX”
+“Improve onboarding”
+“Improve checkout”
+📦 Deliverables
+Fully working simulator inside existing app
+Clean, modular code
+No breaking changes to existing funnel analysis features
+🚀 Why this is strong (for you)
+
+Once this is built, your project becomes:
+
+“Built an interactive funnel analytics app with an experiment simulator that estimates downstream conversion and revenue impact of product changes”
+
+That’s WAY more impressive than a standard funnel dashboard — and directly aligned with how Savant Labs thinks about analytics.
