@@ -652,3 +652,87 @@ def create_ab_summary_chart(summary: dict) -> go.Figure:
     )
     
     return fig
+
+
+def create_simulator_funnel_comparison(baseline: dict, simulated: dict) -> go.Figure:
+    """
+    Create a grouped bar chart comparing baseline and simulated funnel counts.
+
+    Args:
+        baseline: Dict with visited, signed_up, activated, purchased counts
+        simulated: Dict with the same keys after applying simulated lifts
+
+    Returns:
+        Plotly Figure object
+    """
+    stages = ["Visit", "Signup", "Activation", "Purchase"]
+    baseline_counts = [baseline["visited"], baseline["signed_up"], baseline["activated"], baseline["purchased"]]
+    simulated_counts = [simulated["visited"], simulated["signed_up"], simulated["activated"], simulated["purchased"]]
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        x=stages,
+        y=baseline_counts,
+        name="Baseline",
+        marker_color=COLORS["primary"],
+        text=[f"{v:,.0f}" for v in baseline_counts],
+        textposition="outside",
+        hovertemplate="<b>Baseline</b><br>%{x}: %{y:,.0f}<extra></extra>"
+    ))
+
+    fig.add_trace(go.Bar(
+        x=stages,
+        y=simulated_counts,
+        name="Simulated",
+        marker_color=COLORS["success"],
+        text=[f"{v:,.0f}" for v in simulated_counts],
+        textposition="outside",
+        hovertemplate="<b>Simulated</b><br>%{x}: %{y:,.0f}<extra></extra>"
+    ))
+
+    fig.update_layout(
+        title="Baseline vs Simulated Funnel",
+        xaxis_title="Funnel Stage",
+        yaxis_title="Number of Users",
+        barmode="group",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        height=420,
+        margin=dict(l=20, r=20, t=80, b=20)
+    )
+
+    return fig
+
+
+def create_simulator_incremental_chart(deltas: dict) -> go.Figure:
+    """
+    Create a bar chart showing incremental user gains per funnel stage.
+
+    Args:
+        deltas: Dict with delta_signups, delta_activations, delta_purchases
+
+    Returns:
+        Plotly Figure object
+    """
+    stages = ["Signups", "Activations", "Purchases"]
+    values = [deltas["delta_signups"], deltas["delta_activations"], deltas["delta_purchases"]]
+    colors = [FUNNEL_COLORS[1], FUNNEL_COLORS[2], FUNNEL_COLORS[3]]
+
+    fig = go.Figure(go.Bar(
+        x=stages,
+        y=values,
+        text=[f"+{v:,.0f}" if v >= 0 else f"{v:,.0f}" for v in values],
+        textposition="outside",
+        marker_color=colors,
+        hovertemplate="<b>%{x}</b><br>Incremental: %{y:,.0f}<extra></extra>"
+    ))
+
+    fig.update_layout(
+        title="Incremental Gains by Stage",
+        xaxis_title="Funnel Stage",
+        yaxis_title="Additional Users",
+        height=380,
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+
+    return fig

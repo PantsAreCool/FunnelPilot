@@ -43,9 +43,18 @@ The codebase follows a clean separation of concerns:
 - Supports cohort analysis, revenue metrics, and A/B comparison
 - Uses DuckDB for SQL-based analytical queries
 
+### Experiment Impact Simulator (`utils/simulator.py`)
+- Deterministic what-if calculator for funnel improvements
+- `compute_baseline_metrics()`: Extracts current funnel counts, conversion rates, and revenue-per-user
+- `simulate_funnel_impact()`: Applies percentage lifts to each stage and recomputes downstream funnel
+- `compute_deltas()`: Calculates incremental gains (users and revenue) between baseline and simulated
+- `generate_insight()`: Produces plain-English analysis identifying highest-leverage stage and compounding effects
+- Preset scenarios: "Improve Signup UX" (15%), "Improve Onboarding" (20%), "Improve Checkout" (25%)
+
 ### Visualization Layer (`utils/plots.py`)
 - Plotly-based interactive charts
 - Funnel charts, heatmaps, histograms, and time-series visualizations
+- Simulator charts: baseline vs simulated funnel comparison, incremental gains bar chart
 - Consistent color scheme defined in module constants
 
 ### Data Flow

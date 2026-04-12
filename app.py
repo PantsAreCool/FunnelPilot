@@ -68,7 +68,15 @@ from utils.plots import (
     create_revenue_distribution_chart,
     create_ab_comparison_funnel,
     create_ab_conversion_comparison,
-    create_ab_summary_chart
+    create_ab_summary_chart,
+    create_simulator_funnel_comparison,
+    create_simulator_incremental_chart
+)
+from utils.simulator import (
+    compute_baseline_metrics,
+    simulate_funnel_impact,
+    compute_deltas,
+    generate_insight
 )
 
 
@@ -1246,6 +1254,117 @@ def render_ab_comparison(df: pd.DataFrame):
             create_export_section(stage_comp, "ab_comparison")
 
 
+def render_experiment_simulator(funnel_counts: pd.DataFrame, user_flags: pd.DataFrame):
+    st.markdown('<div class="section-header">Experiment Impact Simulator</div>', unsafe_allow_html=True)
+    st.markdown("Simulate improvements at each funnel stage and see how changes propagate downstream.")
+
+    baseline = compute_baseline_metrics(funnel_counts, user_flags)
+
+    if "sim_values" not in st.session_state:
+        st.session_state["sim_values"] = [0, 0, 0]
+
+    def _apply_preset(l1, l2, l3):
+        st.session_state["sim_values"] = [l1, l2, l3]
+        for k in ["sim_lift1", "sim_lift2", "sim_lift3"]:
+            if k in st.session_state:
+                del st.session_state[k]
+
+    def _sync_slider(idx, key):
+        st.session_state["sim_values"][idx] = st.session_state[key]
+
+    st.markdown("#### Preset Scenarios")
+    preset_cols = st.columns(4)
+    with preset_cols[0]:
+        st.button("Improve Signup UX", key="preset_signup", use_container_width=True,
+                  on_click=_apply_preset, args=(15, 0, 0))
+    with preset_cols[1]:
+        st.button("Improve Onboarding", key="preset_onboard", use_container_width=True,
+                  on_click=_apply_preset, args=(0, 20, 0))
+    with preset_cols[2]:
+        st.button("Improve Checkout", key="preset_checkout", use_container_width=True,
+                  on_click=_apply_preset, args=(0, 0, 25))
+    with preset_cols[3]:
+        st.button("Reset All", key="preset_reset", use_container_width=True,
+                  on_click=_apply_preset, args=(0, 0, 0))
+
+    slider_cols = st.columns(3)
+    with slider_cols[0]:
+        lift1_pct = st.slider(
+            "Visit → Signup improvement (%)",
+            min_value=0, max_value=50, step=1,
+            value=st.session_state["sim_values"][0],
+            key="sim_lift1",
+            on_change=_sync_slider, args=(0, "sim_lift1")
+        )
+    with slider_cols[1]:
+        lift2_pct = st.slider(
+            "Signup → Activation improvement (%)",
+            min_value=0, max_value=50, step=1,
+            value=st.session_state["sim_values"][1],
+            key="sim_lift2",
+            on_change=_sync_slider, args=(1, "sim_lift2")
+        )
+    with slider_cols[2]:
+        lift3_pct = st.slider(
+            "Activation → Purchase improvement (%)",
+            min_value=0, max_value=50, step=1,
+            value=st.session_state["sim_values"][2],
+            key="sim_lift3",
+            on_change=_sync_slider, args=(2, "sim_lift3")
+        )
+
+    lift1 = lift1_pct / 100.0
+    lift2 = lift2_pct / 100.0
+    lift3 = lift3_pct / 100.0
+
+    simulated = simulate_funnel_impact(baseline, lift1, lift2, lift3)
+    deltas = compute_deltas(baseline, simulated)
+
+    st.markdown("#### Impact Summary")
+    kpi_cols = st.columns(5)
+    with kpi_cols[0]:
+        st.metric("Additional Signups", f"+{deltas['delta_signups']:,.0f}")
+    with kpi_cols[1]:
+        st.metric("Additional Activations", f"+{deltas['delta_activations']:,.0f}")
+    with kpi_cols[2]:
+        st.metric("Additional Purchases", f"+{deltas['delta_purchases']:,.0f}")
+    with kpi_cols[3]:
+        st.metric("Conversion Lift", f"+{deltas['overall_lift_pct']:.1f}%")
+    with kpi_cols[4]:
+        st.metric("Revenue Increase", f"+${deltas['delta_revenue']:,.0f}")
+
+    chart_cols = st.columns(2)
+    with chart_cols[0]:
+        fig = create_simulator_funnel_comparison(baseline, simulated)
+        st.plotly_chart(fig, key="sim_funnel_comparison", use_container_width=True)
+    with chart_cols[1]:
+        fig = create_simulator_incremental_chart(deltas)
+        st.plotly_chart(fig, key="sim_incremental_chart", use_container_width=True)
+
+    insight_text = generate_insight(baseline, simulated, lift1, lift2, lift3)
+    st.info(f"**Insight:** {insight_text}")
+
+    with st.expander("Detailed Numbers"):
+        comparison_data = {
+            "Stage": ["Visit", "Signup", "Activation", "Purchase"],
+            "Baseline": [baseline["visited"], baseline["signed_up"], baseline["activated"], baseline["purchased"]],
+            "Simulated": [simulated["visited"], simulated["signed_up"], simulated["activated"], simulated["purchased"]],
+            "Difference": [0, deltas["delta_signups"], deltas["delta_activations"], deltas["delta_purchases"]],
+        }
+        comparison_df = pd.DataFrame(comparison_data)
+        comparison_df["Baseline"] = comparison_df["Baseline"].apply(lambda x: f"{x:,.0f}")
+        comparison_df["Simulated"] = comparison_df["Simulated"].apply(lambda x: f"{x:,.0f}")
+        comparison_df["Difference"] = comparison_df["Difference"].apply(lambda x: f"+{x:,.0f}" if x >= 0 else f"{x:,.0f}")
+        st.dataframe(comparison_df, hide_index=True, use_container_width=True)
+
+        rate_data = {
+            "Transition": ["Visit → Signup", "Signup → Activation", "Activation → Purchase"],
+            "Baseline Rate": [f"{baseline['conv1']*100:.2f}%", f"{baseline['conv2']*100:.2f}%", f"{baseline['conv3']*100:.2f}%"],
+            "Simulated Rate": [f"{simulated['conv1']*100:.2f}%", f"{simulated['conv2']*100:.2f}%", f"{simulated['conv3']*100:.2f}%"],
+        }
+        st.dataframe(pd.DataFrame(rate_data), hide_index=True, use_container_width=True)
+
+
 def render_dashboard():
     """Render the main dashboard for authenticated users."""
     user = st.session_state.get("user", {})
@@ -1298,8 +1417,8 @@ def render_dashboard():
     
     render_kpis(processed_data["conversion_rates"], processed_data["user_flags"])
     
-    main_tab1, main_tab2, main_tab3, main_tab4, main_tab5 = st.tabs([
-        "Funnel Analysis", "Cohort Analysis", "Revenue Analytics", "User Journeys", "A/B Comparison"
+    main_tab1, main_tab2, main_tab3, main_tab4, main_tab5, main_tab6 = st.tabs([
+        "Funnel Analysis", "Cohort Analysis", "Revenue Analytics", "User Journeys", "A/B Comparison", "Impact Simulator"
     ])
     
     with main_tab1:
@@ -1320,6 +1439,9 @@ def render_dashboard():
     
     with main_tab5:
         render_ab_comparison(filtered_df)
+    
+    with main_tab6:
+        render_experiment_simulator(processed_data["funnel_counts"], processed_data["user_flags"])
     
     st.markdown("---")
     st.markdown(
