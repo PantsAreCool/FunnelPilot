@@ -2,11 +2,7 @@
 
 ## Overview
 
-A Streamlit-based data analytics dashboard for analyzing marketing funnels (visit → signup → activation → purchase). The application supports synthetic demo data generation, user file uploads in multiple formats (CSV, Excel, JSON, Parquet), and persistent multi-company data storage using DuckDB. Key features include interactive funnel visualizations, cohort analysis, revenue analytics, user journey exploration, and secure multi-tenant access with role-based authentication.
-
-## User Preferences
-
-Preferred communication style: Simple, everyday language.
+A Streamlit-based data analytics dashboard for analyzing marketing funnels (visit → signup → activation → purchase). The application supports synthetic demo data generation, user file uploads in multiple formats (CSV, Excel, JSON, Parquet), and persistent multi-company data storage using DuckDB. Key features include interactive funnel visualizations, cohort analysis, revenue analytics, and user journey exploration.
 
 ## System Architecture
 

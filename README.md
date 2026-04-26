@@ -29,15 +29,4 @@ Open http://localhost:5000 in your browser.
 
 ## Default login
 
-On first run an admin account is created automatically:
-
-- **Username:** `admin`
-- **Password:** `admin123`
-
-Change this immediately after deployment. You can also click **Continue as Guest** to explore the demo data without logging in.
-
-## Notes
-
-- The demo dataset has 10,000 synthetic users with realistic drop-off rates — perfect for kicking the tires.
-- Uploaded files are validated and column-mapped automatically; supported formats are CSV, Excel (`.xlsx`/`.xls`), JSON, and Parquet.
-- All data lives in a single local DuckDB file (`funnel_data.duckdb`) — no external database server required.
+You can click **Continue as Guest** to explore the demo data without logging in.
